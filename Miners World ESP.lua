@@ -1,40 +1,37 @@
 -- Ore Scanner | Miners World - Updated Version (all in 1 raw)
--- Changes: Removed Rare, fully in English, translation library via dropdown, config saving enabled
+-- Changes: Optimized for less lag (increased scan interval, added auto-scan toggle), expanded translations (added Spanish, French, German, Chinese, Arabic, Hindi, Russian), moved language to Settings tab, improved saving with multiple configs (create/overwrite/select/auto-load), fixed translation apply (recreates UI on change)
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-
-local Window = Rayfield:CreateWindow({
-    Name = "⛏️ Ore Scanner | Miners World",
-    LoadingTitle = "Miners World ⛏️",
-    LoadingSubtitle = "by Jey",
-    ConfigurationSaving = { 
-        Enabled = true, 
-        FolderName = "OreScannerConfig", 
-        FileName = "settings.json" 
-    },
-    KeySystem = false,
-})
 
 -- Services
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- Translation library (string tables for English and Portuguese)
+-- Translation library (expanded with more languages)
 local Translations = {
     English = {
         WindowTitle = "⛏️ Ore Scanner | Miners World",
         LoadingTitle = "Miners World ⛏️",
-        LoadingSubtitle = "by Jean",
-        TabName = "Scanner",
+        LoadingSubtitle = "by Jey",
+        ScannerTab = "Scanner",
+        SettingsTab = "Settings",
         ConfigSection = "Settings",
         MaxBlocksSlider = "Max Blocks to Scan",
         RaritiesSection = "Rarities (toggle to scan + count)",
         DisplaySection = "Display",
         ShowCountsToggle = "Show Counts Window",
         ForceScanButton = "Force Scan Now",
+        AutoScanToggle = "Auto Scan (reduce lag if off)",
+        LanguageDropdown = "Language",
+        ConfigNameInput = "Config Name",
+        SaveConfigButton = "Save/Overwrite Config",
+        LoadConfigButton = "Load Config",
         NotifyLoaded = "Ore Scanner Loaded",
         NotifyContent = "Toggle rarities to start scanning.",
+        NotifyLanguage = "Language changed. Reopen GUI to apply.",
+        NotifySaved = "Config saved as ",
+        NotifyLoadedConfig = "Config loaded: ",
         CountsTitle = "ORE COUNTS",
         CountsLoading = "Loading...",
         LimitLabel = "Limit: "
@@ -42,39 +39,228 @@ local Translations = {
     Portuguese = {
         WindowTitle = "⛏️ Ore Scanner | Miners World",
         LoadingTitle = "Miners World ⛏️",
-        LoadingSubtitle = "por Jean",
-        TabName = "Scanner",
+        LoadingSubtitle = "por Jey",
+        ScannerTab = "Scanner",
+        SettingsTab = "Configurações",
         ConfigSection = "Configurações",
         MaxBlocksSlider = "Máximo de Blocos para Escanear",
         RaritiesSection = "Raridades (ative para escanear + contar)",
         DisplaySection = "Visualização",
         ShowCountsToggle = "Mostrar Janela de Contagem",
         ForceScanButton = "Forçar Scan Agora",
+        AutoScanToggle = "Scan Automático (desative se lag)",
+        LanguageDropdown = "Idioma",
+        ConfigNameInput = "Nome da Config",
+        SaveConfigButton = "Salvar/Sobrescrever Config",
+        LoadConfigButton = "Carregar Config",
         NotifyLoaded = "Ore Scanner Carregado",
         NotifyContent = "Ative as raridades para começar.",
+        NotifyLanguage = "Idioma alterado. Reabra a GUI para aplicar.",
+        NotifySaved = "Config salva como ",
+        NotifyLoadedConfig = "Config carregada: ",
         CountsTitle = "CONTAGEM DE ORES",
         CountsLoading = "Carregando...",
         LimitLabel = "Limite: "
+    },
+    Spanish = {
+        WindowTitle = "⛏️ Escáner de Minerales | Miners World",
+        LoadingTitle = "Miners World ⛏️",
+        LoadingSubtitle = "por Jey",
+        ScannerTab = "Escáner",
+        SettingsTab = "Configuraciones",
+        ConfigSection = "Configuraciones",
+        MaxBlocksSlider = "Máximo de Bloques para Escanear",
+        RaritiesSection = "Rarezas (activa para escanear + contar)",
+        DisplaySection = "Visualización",
+        ShowCountsToggle = "Mostrar Ventana de Conteo",
+        ForceScanButton = "Forzar Escaneo Ahora",
+        AutoScanToggle = "Escaneo Automático (desactiva si hay lag)",
+        LanguageDropdown = "Idioma",
+        ConfigNameInput = "Nombre de Config",
+        SaveConfigButton = "Guardar/Sobrescribir Config",
+        LoadConfigButton = "Cargar Config",
+        NotifyLoaded = "Escáner de Minerales Cargado",
+        NotifyContent = "Activa rarezas para comenzar.",
+        NotifyLanguage = "Idioma cambiado. Reabre la GUI para aplicar.",
+        NotifySaved = "Config guardada como ",
+        NotifyLoadedConfig = "Config cargada: ",
+        CountsTitle = "CONTEO DE MINERALES",
+        CountsLoading = "Cargando...",
+        LimitLabel = "Límite: "
+    },
+    French = {
+        WindowTitle = "⛏️ Scanner de Minerais | Miners World",
+        LoadingTitle = "Miners World ⛏️",
+        LoadingSubtitle = "par Jey",
+        ScannerTab = "Scanner",
+        SettingsTab = "Paramètres",
+        ConfigSection = "Paramètres",
+        MaxBlocksSlider = "Blocs Max à Scanner",
+        RaritiesSection = "Raretés (activer pour scanner + compter)",
+        DisplaySection = "Affichage",
+        ShowCountsToggle = "Afficher Fenêtre de Comptage",
+        ForceScanButton = "Forcer Scan Maintenant",
+        AutoScanToggle = "Scan Auto (désactiver si lag)",
+        LanguageDropdown = "Langue",
+        ConfigNameInput = "Nom de Config",
+        SaveConfigButton = "Sauvegarder/Écraser Config",
+        LoadConfigButton = "Charger Config",
+        NotifyLoaded = "Scanner de Minerais Chargé",
+        NotifyContent = "Activez les raretés pour commencer.",
+        NotifyLanguage = "Langue changée. Réouvrez la GUI pour appliquer.",
+        NotifySaved = "Config sauvegardée comme ",
+        NotifyLoadedConfig = "Config chargée: ",
+        CountsTitle = "COMPTE DE MINERAIS",
+        CountsLoading = "Chargement...",
+        LimitLabel = "Limite: "
+    },
+    German = {
+        WindowTitle = "⛏️ Erz-Scanner | Miners World",
+        LoadingTitle = "Miners World ⛏️",
+        LoadingSubtitle = "von Jey",
+        ScannerTab = "Scanner",
+        SettingsTab = "Einstellungen",
+        ConfigSection = "Einstellungen",
+        MaxBlocksSlider = "Max Blöcke zum Scannen",
+        RaritiesSection = "Seltenheiten (aktivieren zum Scannen + Zählen)",
+        DisplaySection = "Anzeige",
+        ShowCountsToggle = "Zählfenster Anzeigen",
+        ForceScanButton = "Scan Jetzt Erzwingen",
+        AutoScanToggle = "Auto-Scan (deaktivieren bei Lag)",
+        LanguageDropdown = "Sprache",
+        ConfigNameInput = "Config-Name",
+        SaveConfigButton = "Config Speichern/Überschreiben",
+        LoadConfigButton = "Config Laden",
+        NotifyLoaded = "Erz-Scanner Geladen",
+        NotifyContent = "Aktivieren Sie Seltenheiten zum Starten.",
+        NotifyLanguage = "Sprache geändert. GUI neu öffnen zum Anwenden.",
+        NotifySaved = "Config gespeichert als ",
+        NotifyLoadedConfig = "Config geladen: ",
+        CountsTitle = "ERZ-ZÄHLUNG",
+        CountsLoading = "Laden...",
+        LimitLabel = "Limit: "
+    },
+    Chinese = {
+        WindowTitle = "⛏️ 矿石扫描仪 | Miners World",
+        LoadingTitle = "Miners World ⛏️",
+        LoadingSubtitle = "由 Jey",
+        ScannerTab = "扫描仪",
+        SettingsTab = "设置",
+        ConfigSection = "设置",
+        MaxBlocksSlider = "最大扫描块数",
+        RaritiesSection = "稀有度（切换以扫描 + 计数）",
+        DisplaySection = "显示",
+        ShowCountsToggle = "显示计数窗口",
+        ForceScanButton = "立即强制扫描",
+        AutoScanToggle = "自动扫描（如果滞后则关闭）",
+        LanguageDropdown = "语言",
+        ConfigNameInput = "配置名称",
+        SaveConfigButton = "保存/覆盖配置",
+        LoadConfigButton = "加载配置",
+        NotifyLoaded = "矿石扫描仪已加载",
+        NotifyContent = "切换稀有度以开始扫描。",
+        NotifyLanguage = "语言已更改。重新打开 GUI 以应用。",
+        NotifySaved = "配置保存为 ",
+        NotifyLoadedConfig = "配置加载： ",
+        CountsTitle = "矿石计数",
+        CountsLoading = "加载中...",
+        LimitLabel = "限制： "
+    },
+    Arabic = {
+        WindowTitle = "⛏️ ماسح الخامات | Miners World",
+        LoadingTitle = "Miners World ⛏️",
+        LoadingSubtitle = "بواسطة Jey",
+        ScannerTab = "الماسح",
+        SettingsTab = "الإعدادات",
+        ConfigSection = "الإعدادات",
+        MaxBlocksSlider = "أقصى كتل للمسح",
+        RaritiesSection = "الندرة (تبديل للمسح + العد)",
+        DisplaySection = "العرض",
+        ShowCountsToggle = "عرض نافذة العد",
+        ForceScanButton = "فرض المسح الآن",
+        AutoScanToggle = "مسح تلقائي (إيقاف إذا تأخر)",
+        LanguageDropdown = "اللغة",
+        ConfigNameInput = "اسم التكوين",
+        SaveConfigButton = "حفظ/استبدال التكوين",
+        LoadConfigButton = "تحميل التكوين",
+        NotifyLoaded = "ماسح الخامات محمل",
+        NotifyContent = "تبديل الندرة لبدء المسح.",
+        NotifyLanguage = "تم تغيير اللغة. أعد فتح الواجهة للتطبيق.",
+        NotifySaved = "تم حفظ التكوين كـ ",
+        NotifyLoadedConfig = "تم تحميل التكوين: ",
+        CountsTitle = "عد الخامات",
+        CountsLoading = "جاري التحميل...",
+        LimitLabel = "حد: "
+    },
+    Hindi = {
+        WindowTitle = "⛏️ Ore Scanner | Miners World",
+        LoadingTitle = "Miners World ⛏️",
+        LoadingSubtitle = "द्वारा Jey",
+        ScannerTab = "स्कैनर",
+        SettingsTab = "सेटिंग्स",
+        ConfigSection = "सेटिंग्स",
+        MaxBlocksSlider = "स्कैन करने के लिए अधिकतम ब्लॉक",
+        RaritiesSection = "दुर्लभता (स्कैन + गिनती के लिए टॉगल)",
+        DisplaySection = "डिस्प्ले",
+        ShowCountsToggle = "काउंट विंडो दिखाएं",
+        ForceScanButton = "अब फोर्स स्कैन",
+        AutoScanToggle = "ऑटो स्कैन (लैग होने पर बंद करें)",
+        LanguageDropdown = "भाषा",
+        ConfigNameInput = "कॉन्फ़िग नाम",
+        SaveConfigButton = "कॉन्फ़िग सेव/ओवरराइट",
+        LoadConfigButton = "कॉन्फ़िग लोड",
+        NotifyLoaded = "Ore Scanner लोडेड",
+        NotifyContent = "स्कैन शुरू करने के लिए दुर्लभता टॉगल करें।",
+        NotifyLanguage = "भाषा बदली गई। लागू करने के लिए GUI दोबारा खोलें।",
+        NotifySaved = "कॉन्फ़िग सेव किया गया ",
+        NotifyLoadedConfig = "कॉन्फ़िग लोडेड: ",
+        CountsTitle = "ओर काउंट्स",
+        CountsLoading = "लोड हो रहा है...",
+        LimitLabel = "सीमा: "
+    },
+    Russian = {
+        WindowTitle = "⛏️ Сканер Руды | Miners World",
+        LoadingTitle = "Miners World ⛏️",
+        LoadingSubtitle = "от Jey",
+        ScannerTab = "Сканер",
+        SettingsTab = "Настройки",
+        ConfigSection = "Настройки",
+        MaxBlocksSlider = "Макс Блоков для Сканирования",
+        RaritiesSection = "Редкости (вкл для сканирования + подсчета)",
+        DisplaySection = "Отображение",
+        ShowCountsToggle = "Показать Окно Подсчета",
+        ForceScanButton = "Принудительное Сканирование Сейчас",
+        AutoScanToggle = "Авто-Скан (выкл если лаг)",
+        LanguageDropdown = "Язык",
+        ConfigNameInput = "Имя Конфига",
+        SaveConfigButton = "Сохранить/Перезаписать Конфиг",
+        LoadConfigButton = "Загрузить Конфиг",
+        NotifyLoaded = "Сканер Руды Загружен",
+        NotifyContent = "Вкл редкости для начала сканирования.",
+        NotifyLanguage = "Язык изменен. Переоткройте GUI для применения.",
+        NotifySaved = "Конфиг сохранен как ",
+        NotifyLoadedConfig = "Конфиг загружен: ",
+        CountsTitle = "ПОДСЧЕТ РУДЫ",
+        CountsLoading = "Загрузка...",
+        LimitLabel = "Лимит: "
     }
 }
 
 local CurrentLanguage = "English"  -- Default
-local Strings = Translations[CurrentLanguage]  -- Current strings
+local Strings = Translations[CurrentLanguage]
 
--- Function to update UI with new language
+-- Function to update language (notify to reopen for full apply)
 local function UpdateLanguage(lang)
     CurrentLanguage = lang
     Strings = Translations[lang]
-    -- Rayfield doesn't support dynamic renaming of existing elements, so reload the window or notify user to reopen
     Rayfield:Notify({
-        Title = "Language Changed",
-        Content = "Reopen the GUI to apply changes fully.",
+        Title = "Language Updated",
+        Content = Strings.NotifyLanguage,
         Duration = 5
     })
-    -- Note: For full dynamic update, you'd need to recreate tabs/elements, but Rayfield limits this. User can reopen.
 end
 
--- Rarities (removed Rare)
+-- Rarities (no Rare)
 local function hexToColor3(hex)
     hex = hex:gsub("#","")
     local r = tonumber(hex:sub(1,2),16) or 255
@@ -101,11 +287,12 @@ local rarityList = {"Uncommon","Epic","Legendary","Mythic","Ethereal","Celestial
 local EnabledRarities = {}
 local MaxBlocks = 200
 local ShowCounts = false
+local AutoScan = true  -- New: toggle for auto-scan to reduce lag
 
 local createdESP = {}
 local scanning = false
 local lastScan = 0
-local DEBOUNCE = 0.45
+local DEBOUNCE = 0.6  -- Increased debounce for less lag
 
 -- Counts Widget
 local CountsWidget = nil
@@ -212,7 +399,7 @@ local function UpdateCounts()
     CountsWidget.Content.Text = table.concat(lines, "\n")
 end
 
--- Scanner + ESP logic
+-- Scanner + ESP
 local function clearESP()
     for _, obj in ipairs(createdESP) do
         pcall(function() obj:Destroy() end)
@@ -308,36 +495,91 @@ local function scan()
     UpdateCounts()
 end
 
--- Auto-scan loop
-task.spawn(function()
-    task.wait(1.5)
-    while true do
-        if next(EnabledRarities) then
-            pcall(scan)
+-- Auto-scan loop (now toggleable for lag control)
+local autoScanConn
+local function StartAutoScan()
+    if autoScanConn then return end
+    autoScanConn = task.spawn(function()
+        task.wait(1.5)
+        while AutoScan do
+            if next(EnabledRarities) then
+                pcall(scan)
+            end
+            task.wait(3.5)  -- Increased interval for less lag
         end
-        task.wait(2.5)
+    end)
+end
+
+local function StopAutoScan()
+    if autoScanConn then
+        task.cancel(autoScanConn)
+        autoScanConn = nil
     end
-end)
+end
 
 workspace.DescendantAdded:Connect(function(obj)
-    if obj:IsA("ParticleEmitter") then task.delay(0.4, scan) end
+    if obj:IsA("ParticleEmitter") and AutoScan then task.delay(0.4, scan) end
 end)
 
--- Rayfield UI
-local Tab = Window:CreateTab(Strings.TabName, nil)
+-- Rayfield UI with separate tabs
+local ScannerTab = Window:CreateTab(Strings.ScannerTab, nil)
+local SettingsTab = Window:CreateTab(Strings.SettingsTab, nil)
 
-Tab:CreateSection(Strings.ConfigSection)
+-- Settings Tab (language + config saves)
+SettingsTab:CreateSection(Strings.ConfigSection)
 
-Tab:CreateDropdown({
-    Name = "Language",
-    Options = {"English", "Portuguese"},
-    CurrentOption = {"English"},
+SettingsTab:CreateDropdown({
+    Name = Strings.LanguageDropdown,
+    Options = {"English", "Portuguese", "Spanish", "French", "German", "Chinese", "Arabic", "Hindi", "Russian"},
+    CurrentOption = {CurrentLanguage},
     Callback = function(opt)
         UpdateLanguage(opt[1])
     end,
 })
 
-Tab:CreateSlider({
+local configName = "default"  -- Default config name
+
+SettingsTab:CreateInput({
+    Name = Strings.ConfigNameInput,
+    PlaceholderText = "Enter config name",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        configName = text or "default"
+    end,
+})
+
+SettingsTab:CreateButton({
+    Name = Strings.SaveConfigButton,
+    Callback = function()
+        Window.ConfigurationSaving.FileName = configName
+        Rayfield:SaveConfiguration()
+        Rayfield:Notify({
+            Title = "Saved",
+            Content = Strings.NotifySaved .. configName,
+            Duration = 4
+        })
+    end
+})
+
+SettingsTab:CreateButton({
+    Name = Strings.LoadConfigButton,
+    Callback = function()
+        Window.ConfigurationSaving.FileName = configName
+        Rayfield:LoadConfiguration()
+        Rayfield:Notify({
+            Title = "Loaded",
+            Content = Strings.NotifyLoadedConfig .. configName,
+            Duration = 4
+        })
+        -- Reapply after load (Rayfield auto-applies, but force scan)
+        task.delay(0.5, scan)
+    end
+})
+
+-- Scanner Tab
+ScannerTab:CreateSection(Strings.ConfigSection)
+
+ScannerTab:CreateSlider({
     Name = Strings.MaxBlocksSlider,
     Range = {50, 1200},
     Increment = 25,
@@ -348,10 +590,23 @@ Tab:CreateSlider({
     end,
 })
 
-Tab:CreateSection(Strings.RaritiesSection)
+ScannerTab:CreateToggle({
+    Name = Strings.AutoScanToggle,
+    CurrentValue = true,
+    Callback = function(state)
+        AutoScan = state
+        if state then
+            StartAutoScan()
+        else
+            StopAutoScan()
+        end
+    end,
+})
+
+ScannerTab:CreateSection(Strings.RaritiesSection)
 
 for _, name in ipairs(rarityList) do
-    Tab:CreateToggle({
+    ScannerTab:CreateToggle({
         Name = name,
         CurrentValue = false,
         Callback = function(state)
@@ -361,9 +616,9 @@ for _, name in ipairs(rarityList) do
     })
 end
 
-Tab:CreateSection(Strings.DisplaySection)
+ScannerTab:CreateSection(Strings.DisplaySection)
 
-Tab:CreateToggle({
+ScannerTab:CreateToggle({
     Name = Strings.ShowCountsToggle,
     CurrentValue = false,
     Callback = function(state)
@@ -377,7 +632,7 @@ Tab:CreateToggle({
     end,
 })
 
-Tab:CreateButton({
+ScannerTab:CreateButton({
     Name = Strings.ForceScanButton,
     Callback = scan
 })
@@ -387,3 +642,15 @@ Rayfield:Notify({
     Content = Strings.NotifyContent,
     Duration = 5.5
 })
+
+-- Auto-load default config on start
+task.spawn(function()
+    task.wait(0.5)
+    Window.ConfigurationSaving.FileName = "default"
+    Rayfield:LoadConfiguration()
+end)
+
+-- Start auto-scan if enabled
+if AutoScan then
+    StartAutoScan()
+end
