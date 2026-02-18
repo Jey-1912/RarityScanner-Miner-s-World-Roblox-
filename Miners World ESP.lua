@@ -1,5 +1,5 @@
--- Ore Scanner | Miners World - Versão Completa 2025 (tudo em 1 raw)
--- Coloque esse script inteiro no seu raw
+-- Ore Scanner | Miners World - Updated Version (all in 1 raw)
+-- Changes: Removed Rare, fully in English, translation library via dropdown, config saving enabled
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -7,27 +7,84 @@ local Window = Rayfield:CreateWindow({
     Name = "⛏️ Ore Scanner | Miners World",
     LoadingTitle = "Miners World ⛏️",
     LoadingSubtitle = "by Jean",
-    ConfigurationSaving = { Enabled = false },
+    ConfigurationSaving = { 
+        Enabled = true, 
+        FolderName = "OreScannerConfig", 
+        FileName = "settings.json" 
+    },
     KeySystem = false,
 })
 
--- Serviços
+-- Services
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- Raridades
+-- Translation library (string tables for English and Portuguese)
+local Translations = {
+    English = {
+        WindowTitle = "⛏️ Ore Scanner | Miners World",
+        LoadingTitle = "Miners World ⛏️",
+        LoadingSubtitle = "by Jean",
+        TabName = "Scanner",
+        ConfigSection = "Settings",
+        MaxBlocksSlider = "Max Blocks to Scan",
+        RaritiesSection = "Rarities (toggle to scan + count)",
+        DisplaySection = "Display",
+        ShowCountsToggle = "Show Counts Window",
+        ForceScanButton = "Force Scan Now",
+        NotifyLoaded = "Ore Scanner Loaded",
+        NotifyContent = "Toggle rarities to start scanning.",
+        CountsTitle = "ORE COUNTS",
+        CountsLoading = "Loading...",
+        LimitLabel = "Limit: "
+    },
+    Portuguese = {
+        WindowTitle = "⛏️ Ore Scanner | Miners World",
+        LoadingTitle = "Miners World ⛏️",
+        LoadingSubtitle = "por Jean",
+        TabName = "Scanner",
+        ConfigSection = "Configurações",
+        MaxBlocksSlider = "Máximo de Blocos para Escanear",
+        RaritiesSection = "Raridades (ative para escanear + contar)",
+        DisplaySection = "Visualização",
+        ShowCountsToggle = "Mostrar Janela de Contagem",
+        ForceScanButton = "Forçar Scan Agora",
+        NotifyLoaded = "Ore Scanner Carregado",
+        NotifyContent = "Ative as raridades para começar.",
+        CountsTitle = "CONTAGEM DE ORES",
+        CountsLoading = "Carregando...",
+        LimitLabel = "Limite: "
+    }
+}
+
+local CurrentLanguage = "English"  -- Default
+local Strings = Translations[CurrentLanguage]  -- Current strings
+
+-- Function to update UI with new language
+local function UpdateLanguage(lang)
+    CurrentLanguage = lang
+    Strings = Translations[lang]
+    -- Rayfield doesn't support dynamic renaming of existing elements, so reload the window or notify user to reopen
+    Rayfield:Notify({
+        Title = "Language Changed",
+        Content = "Reopen the GUI to apply changes fully.",
+        Duration = 5
+    })
+    -- Note: For full dynamic update, you'd need to recreate tabs/elements, but Rayfield limits this. User can reopen.
+end
+
+-- Rarities (removed Rare)
 local function hexToColor3(hex)
     hex = hex:gsub("#","")
     local r = tonumber(hex:sub(1,2),16) or 255
     local g = tonumber(hex:sub(3,4),16) or 255
     local b = tonumber(hex:sub(5,6),16) or 255
-    return Color3.fromRGB(r or 255, g or 255, b or 255)
+    return Color3.fromRGB(r,g,b)
 end
 
 local rarities = {
     Uncommon  = {Color = hexToColor3("#00ff00")},
-    Rare      = {Color = hexToColor3("#1e90ff")},
     Epic      = {Color = hexToColor3("#8a2be2")},
     Legendary = {Color = hexToColor3("#ffff00")},
     Mythic    = {Color = hexToColor3("#ff0000")},
@@ -38,9 +95,9 @@ local rarities = {
     Nil       = {Color = hexToColor3("#635f62")},
 }
 
-local rarityList = {"Uncommon","Rare","Epic","Legendary","Mythic","Ethereal","Celestial","Zenith","Divine","Nil"}
+local rarityList = {"Uncommon","Epic","Legendary","Mythic","Ethereal","Celestial","Zenith","Divine","Nil"}
 
--- Variáveis globais
+-- Globals
 local EnabledRarities = {}
 local MaxBlocks = 200
 local ShowCounts = false
@@ -50,7 +107,7 @@ local scanning = false
 local lastScan = 0
 local DEBOUNCE = 0.45
 
--- Widget de contagem (janela separada)
+-- Counts Widget
 local CountsWidget = nil
 
 local function CreateCountsWidget()
@@ -77,7 +134,7 @@ local function CreateCountsWidget()
     local title = Instance.new("TextLabel", frame)
     title.Size = UDim2.fromScale(1,0.14)
     title.BackgroundTransparency = 1
-    title.Text = "ORE COUNTS"
+    title.Text = Strings.CountsTitle
     title.Font = Enum.Font.GothamBlack
     title.TextScaled = true
     title.TextColor3 = Color3.fromRGB(240,240,255)
@@ -92,7 +149,7 @@ local function CreateCountsWidget()
     content.TextWrapped = true
     content.TextSize = 14
     content.Font = Enum.Font.Gotham
-    content.Text = "Carregando..."
+    content.Text = Strings.CountsLoading
 
     local minBtn = Instance.new("TextButton", frame)
     minBtn.Size = UDim2.new(0,26,0,22)
@@ -147,7 +204,7 @@ local function UpdateCounts()
         end
     end
 
-    local lines = {"Limite: " .. MaxBlocks, ""}
+    local lines = {Strings.LimitLabel .. MaxBlocks, ""}
     for _, name in ipairs(rarityList) do
         lines[#lines+1] = name .. ": " .. counts[name]
     end
@@ -155,7 +212,7 @@ local function UpdateCounts()
     CountsWidget.Content.Text = table.concat(lines, "\n")
 end
 
--- Lógica do Scanner + ESP
+-- Scanner + ESP logic
 local function clearESP()
     for _, obj in ipairs(createdESP) do
         pcall(function() obj:Destroy() end)
@@ -251,7 +308,7 @@ local function scan()
     UpdateCounts()
 end
 
--- Auto-scan
+-- Auto-scan loop
 task.spawn(function()
     task.wait(1.5)
     while true do
@@ -266,13 +323,22 @@ workspace.DescendantAdded:Connect(function(obj)
     if obj:IsA("ParticleEmitter") then task.delay(0.4, scan) end
 end)
 
--- Interface Rayfield
-local Tab = Window:CreateTab("Scanner", nil)
+-- Rayfield UI
+local Tab = Window:CreateTab(Strings.TabName, nil)
 
-Tab:CreateSection("Configurações")
+Tab:CreateSection(Strings.ConfigSection)
+
+Tab:CreateDropdown({
+    Name = "Language",
+    Options = {"English", "Portuguese"},
+    CurrentOption = {"English"},
+    Callback = function(opt)
+        UpdateLanguage(opt[1])
+    end,
+})
 
 Tab:CreateSlider({
-    Name = "Máximo de blocos",
+    Name = Strings.MaxBlocksSlider,
     Range = {50, 1200},
     Increment = 25,
     CurrentValue = MaxBlocks,
@@ -282,7 +348,7 @@ Tab:CreateSlider({
     end,
 })
 
-Tab:CreateSection("Raridades (ative para escanear + contar)")
+Tab:CreateSection(Strings.RaritiesSection)
 
 for _, name in ipairs(rarityList) do
     Tab:CreateToggle({
@@ -295,10 +361,10 @@ for _, name in ipairs(rarityList) do
     })
 end
 
-Tab:CreateSection("Visualização")
+Tab:CreateSection(Strings.DisplaySection)
 
 Tab:CreateToggle({
-    Name = "Mostrar janela de contagem",
+    Name = Strings.ShowCountsToggle,
     CurrentValue = false,
     Callback = function(state)
         ShowCounts = state
@@ -312,12 +378,12 @@ Tab:CreateToggle({
 })
 
 Tab:CreateButton({
-    Name = "Forçar Scan Agora",
+    Name = Strings.ForceScanButton,
     Callback = scan
 })
 
 Rayfield:Notify({
-    Title = "Ore Scanner Carregado",
-    Content = "Ative as raridades desejadas para começar.",
+    Title = Strings.NotifyLoaded,
+    Content = Strings.NotifyContent,
     Duration = 5.5
 })
