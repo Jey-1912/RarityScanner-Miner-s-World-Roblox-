@@ -1,18 +1,24 @@
 -- Ore Scanner | Miners World - Final Optimized Version (English only, by Jey)
 
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Ore Scanner | Miners World - English version by Jey (load fix)
+
+local success, Rayfield = pcall(loadstring, game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source', true))
+
+if not success then
+    warn("Falha ao carregar Rayfield - tente mirror alternativo ou outro executor")
+    return
+end
 
 local Window = Rayfield:CreateWindow({
     Name = "⛏️ Ore Scanner | Miners World",
     LoadingTitle = "Miners World ⛏️",
     LoadingSubtitle = "by Jey",
-    ConfigurationSaving = { 
-        Enabled = true, 
-        FolderName = "OreScannerConfig", 
-        FileName = "settings.json" 
-    },
+    ConfigurationSaving = { Enabled = true, FolderName = "OreScanner", FileName = "settings" },
     KeySystem = false,
 })
+
+-- (resto do seu script aqui: rarities, globals, functions scan/ESP/widget, UI tabs, etc.)
+-- ... cole o resto do código que eu mandei antes
 
 -- Services
 local Players = game:GetService("Players")
@@ -329,3 +335,4 @@ Rayfield:Notify({
     Content = "Toggle rarities to start scanning.",
     Duration = 5
 })
+print("Ore Scanner ready - if no menu, check console for errors")
