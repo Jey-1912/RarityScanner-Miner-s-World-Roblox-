@@ -1,4 +1,4 @@
--- Ore Scanner | Miners World - Rayfield Version (English, by Jey)
+-- Ore Scanner | Miners World - Rayfield Version (English, by Jey, Lag Fixed)
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -79,7 +79,7 @@ for name in pairs(rarities) do
 end
 
 local MAX_BLOCKS = 200
-local SCAN_DEBOUNCE = 0.35
+local SCAN_DEBOUNCE = 4  -- Increased to reduce lag
 
 local createdESP = {}
 local function clearESP()
@@ -122,9 +122,101 @@ local function createESP(part, rarityName, color)
     label.Parent = billboard
 end
 
--- SCAN
+-- Cache otimizado de ParticleEmitters
+local cachedEmitters = {}
+
+local function refreshCache()
+    cachedEmitters = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ParticleEmitter") and not isInsideBreaking(obj) then
+            table.insert(cachedEmitters, obj)
+        end
+    end
+end
+
+-- Inicializa cache uma vez
+task.spawn(function()
+    task.wait(2)  -- espera mapa carregar
+    refreshCache()
+end)
+
+-- Atualiza cache só quando partículas mudam
+workspace.DescendantAdded:Connect(function(obj)
+    if obj:IsA("ParticleEmitter") and not isInsideBreaking(obj) then
+        table.insert(cachedEmitters, obj)
+        task.delay(1.5, scan)  -- delay maior para menos lag
+    end
+end)
+
+workspace.DescendantRemoving:Connect(function(obj)
+    if obj:IsA("ParticleEmitter") then
+        for i = #cachedEmitters, 1, -1 do
+            if cachedEmitters[i] == obj then
+                table.remove(cachedEmitters, i)
+                break
+            end
+        end
+        task.delay(1.5, scan)
+    end
+end)
+
+-- SCAN otimizado
 local scanning = false
 local lastScan = 0
+
+local function scan()
+    if scanning then return end
+    if os.clock() - lastScan < SCAN_DEBOUNCE then return end
+
+    scanning = true
+    lastScan = os.clock()
+
+    clearESP()
+
+    local counts = {}
+    for name in pairs(rarities) do
+        counts[name] = 0
+    end
+
+    local processed = 0
+    local markedParts = {}
+
+    for _,obj in ipairs(cachedEmitters) do
+        if processed >= MAX_BLOCKS then break end
+
+        local part = getRealPartFromEmitter(obj)
+        if not part or markedParts[part] then continue end
+
+        local colors = getEmitterColors(obj)
+        if not colors then continue end
+
+        local foundRarity = nil
+        for rarityName, data in pairs(rarities) do
+            if enabled[rarityName] then
+                for _,c in ipairs(colors) do
+                    if colorNear(c, data.Color) then
+                        foundRarity = rarityName
+                        break
+                    end
+                end
+            end
+            if foundRarity then break end
+        end
+
+        if foundRarity then
+            markedParts[part] = true
+            counts[foundRarity] += 1
+            processed += 1
+            createESP(part, foundRarity, rarities[foundRarity].Color)
+        end
+
+        if processed % 50 == 0 then task.wait(0.001) end  -- respiro para não congelar
+    end
+
+    updateCountsGUI(counts)
+
+    scanning = false
+end
 
 local CountsGui = nil
 local function CreateCountsGui()
@@ -190,73 +282,13 @@ local function updateCountsGUI(counts)
     local lines = {}
     table.insert(lines, "Limit: " .. tostring(MAX_BLOCKS))
     table.insert(lines, "")
-
     local names = {}
     for name in pairs(rarities) do table.insert(names, name) end
     table.sort(names)
-
     for _,name in ipairs(names) do
         table.insert(lines, string.format("%s: %d", name, counts[name] or 0))
     end
-
     CountsGui.Text.Text = table.concat(lines, "\n")
-end
-
-local function scan()
-    if scanning then return end
-    if os.clock() - lastScan < SCAN_DEBOUNCE then return end
-
-    scanning = true
-    lastScan = os.clock()
-
-    clearESP()
-
-    local counts = {}
-    for name in pairs(rarities) do
-        counts[name] = 0
-    end
-
-    local processed = 0
-    local markedParts = {}
-
-    for _,obj in ipairs(workspace:GetDescendants()) do
-        if processed >= MAX_BLOCKS then break end
-
-        if not obj:IsA("ParticleEmitter") then continue end
-        if isInsideBreaking(obj) then continue end
-
-        local part = getRealPartFromEmitter(obj)
-        if not part then continue end
-        if isInsideBreaking(part) then continue end
-        if markedParts[part] then continue end
-
-        local colors = getEmitterColors(obj)
-        if not colors then continue end
-
-        local foundRarity = nil
-        for rarityName, data in pairs(rarities) do
-            if enabled[rarityName] then
-                for _,c in ipairs(colors) do
-                    if colorNear(c, data.Color) then
-                        foundRarity = rarityName
-                        break
-                    end
-                end
-            end
-            if foundRarity then break end
-        end
-
-        if foundRarity then
-            markedParts[part] = true
-            counts[foundRarity] += 1
-            processed += 1
-            createESP(part, foundRarity, rarities[foundRarity].Color)
-        end
-    end
-
-    updateCountsGUI(counts)
-
-    scanning = false
 end
 
 -- Tabs
@@ -352,25 +384,13 @@ SaveTab:CreateButton({
 Rayfield:LoadConfiguration()
 
 -- Auto scan setup
-task.defer(scan)  -- Initial scan
-
-workspace.DescendantAdded:Connect(function(obj)
-    if obj:IsA("ParticleEmitter") then
-        task.defer(scan)
-    end
-end)
-
-workspace.DescendantRemoving:Connect(function(obj)
-    if obj:IsA("ParticleEmitter") then
-        task.defer(scan)
-    end
-end)
+task.defer(scan) -- Initial scan
 
 -- Optional auto-scan loop if needed (every 5s)
 task.spawn(function()
     while true do
         task.wait(5)
-        if next(enabled) then  -- Only if any rarity enabled
+        if next(enabled) then -- Only if any rarity enabled
             pcall(scan)
         end
     end
