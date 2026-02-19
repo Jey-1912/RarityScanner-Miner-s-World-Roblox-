@@ -1,4 +1,4 @@
--- Ore Scanner | Miners World - Rayfield Version (English, by Jey, Back to Original Scan)
+-- Ore Scanner | Miners World - Rayfield Version (English, by Jey, Save Tab Removed, Fixed Errors)
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -50,7 +50,61 @@ local function getRealPartFromEmitter(emitter)
     return nil
 end
 
--- Rarities (no Rare, no Emerald)
+-- Minimize function
+local function makeMinimizable(frame, titleLabel, contentObjects)
+    local minimized = false
+    local originalSize = frame.Size
+
+    local btn = Instance.new("TextButton")
+    btn.Name = "MinimizeButton"
+    btn.Size = UDim2.new(0, 28, 0, 22)
+    btn.Position = UDim2.new(1, -34, 0, 6)
+    btn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    btn.BorderSizePixel = 0
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 16
+    btn.Text = "–"
+    btn.Parent = frame
+
+    local btnStroke = Instance.new("UIStroke")
+    btnStroke.Color = Color3.fromRGB(80,80,80)
+    btnStroke.Parent = btn
+
+    local function apply()
+        if minimized then
+            frame.Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset, 0, 48)
+            btn.Text = "+"
+            for _,obj in ipairs(contentObjects) do
+                if obj and obj.Parent then
+                    obj.Visible = false
+                end
+            end
+        else
+            frame.Size = originalSize
+            btn.Text = "–"
+            for _,obj in ipairs(contentObjects) do
+                if obj and obj.Parent then
+                    obj.Visible = true
+                end
+            end
+        end
+        if titleLabel then
+            titleLabel.Visible = true
+        end
+        btn.Visible = true
+    end
+
+    btn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        apply()
+    end)
+
+    apply()
+    return function() return minimized end
+end
+
+-- Rarities (NO EMERALD, NO RARE)
 local rarities = {
     Uncommon  = {Color = hexToColor3("#00ff00")},
     Epic      = {Color = hexToColor3("#8a2be2")},
@@ -64,15 +118,20 @@ local rarities = {
 }
 
 local enabled = {}
-for name in pairs(rarities) do enabled[name] = false end
+for name in pairs(rarities) do
+    enabled[name] = false
+end
 
 local MAX_BLOCKS = 200
 local SCAN_DEBOUNCE = 0.35
 
 local createdESP = {}
-
 local function clearESP()
-    for _, obj in ipairs(createdESP) do pcall(function() obj:Destroy() end) end
+    for _, obj in ipairs(createdESP) do
+        if obj and obj.Parent then
+            obj:Destroy()
+        end
+    end
     table.clear(createdESP)
 end
 
@@ -88,25 +147,26 @@ local function createESP(part, rarityName, color)
     table.insert(createdESP, highlight)
 
     local billboard = Instance.new("BillboardGui")
-    billboard.Adornee = part
     billboard.Size = UDim2.fromOffset(150, 36)
     billboard.StudsOffset = Vector3.new(0, part.Size.Y + 0.6, 0)
     billboard.AlwaysOnTop = true
     billboard.Parent = part
     table.insert(createdESP, billboard)
 
-    local label = Instance.new("TextLabel", billboard)
+    local label = Instance.new("TextLabel")
     label.Size = UDim2.fromScale(1,1)
     label.BackgroundTransparency = 1
     label.Text = rarityName
     label.Font = Enum.Font.GothamBold
+    label.TextScaled = false
     label.TextSize = 18
     label.TextColor3 = color
     label.TextStrokeTransparency = 0
     label.TextStrokeColor3 = Color3.new(0,0,0)
+    label.Parent = billboard
 end
 
--- SCAN (volta ao original)
+-- SCAN
 local scanning = false
 local lastScan = 0
 
@@ -120,12 +180,14 @@ local function scan()
     clearESP()
 
     local counts = {}
-    for name in pairs(rarities) do counts[name] = 0 end
+    for name in pairs(rarities) do
+        counts[name] = 0
+    end
 
     local processed = 0
     local markedParts = {}
 
-    for _, obj in ipairs(workspace:GetDescendants()) do
+    for _,obj in ipairs(workspace:GetDescendants()) do
         if processed >= MAX_BLOCKS then break end
         if not obj:IsA("ParticleEmitter") then continue end
         if isInsideBreaking(obj) then continue end
@@ -159,7 +221,6 @@ local function scan()
     scanning = false
 end
 
--- Counts GUI with minimize and close
 local CountsGui = nil
 local function CreateCountsGui()
     if CountsGui then return end
@@ -205,47 +266,7 @@ local function CreateCountsGui()
     countText.Text = "No data yet."
     countText.Parent = frame
 
-    -- Minimize button
-    local minBtn = Instance.new("TextButton")
-    minBtn.Size = UDim2.new(0,26,0,22)
-    minBtn.Position = UDim2.new(1,-58,0,4)
-    minBtn.BackgroundColor3 = Color3.fromRGB(35,35,45)
-    minBtn.TextColor3 = Color3.new(1,1,1)
-    minBtn.Font = Enum.Font.GothamBold
-    minBtn.TextSize = 16
-    minBtn.Text = "–"
-    minBtn.Parent = frame
-
-    local minimized = false
-    local origSize = frame.Size
-
-    minBtn.MouseButton1Click:Connect(function()
-        minimized = not minimized
-        if minimized then
-            frame.Size = UDim2.new(origSize.X.Scale, origSize.X.Offset, 0, 38)
-            countText.Visible = false
-            minBtn.Text = "+"
-        else
-            frame.Size = origSize
-            countText.Visible = true
-            minBtn.Text = "–"
-        end
-    end)
-
-    -- Close button
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Size = UDim2.new(0,26,0,22)
-    closeBtn.Position = UDim2.new(1,-28,0,4)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(200,50,50)
-    closeBtn.TextColor3 = Color3.new(1,1,1)
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 16
-    closeBtn.Text = "X"
-    closeBtn.Parent = frame
-
-    closeBtn.MouseButton1Click:Connect(function()
-        DestroyCountsGui()
-    end)
+    makeMinimizable(frame, title, {countText})
 
     CountsGui = {Gui = gui, Text = countText}
 end
@@ -258,21 +279,23 @@ local function DestroyCountsGui()
 end
 
 local function updateCountsGUI(counts)
-    if not CountsGui or not CountsGui.Text then return end
-    local lines = {"Limit: " .. tostring(MAX_BLOCKS), ""}
+    if not CountsGui then return end
+    local lines = {}
+    table.insert(lines, "Limit: " .. tostring(MAX_BLOCKS))
+    table.insert(lines, "")
     local names = {}
-    for n in pairs(rarities) do table.insert(names, n) end
+    for name in pairs(rarities) do table.insert(names, name) end
     table.sort(names)
-    for _, name in ipairs(names) do
-        lines[#lines+1] = name .. ": " .. (counts[name] or 0)
+    for _,name in ipairs(names) do
+        table.insert(lines, string.format("%s: %d", name, counts[name] or 0))
     end
     CountsGui.Text.Text = table.concat(lines, "\n")
 end
 
 -- Tabs
 local ScannerTab = Window:CreateTab("Scanner", nil)
-local SaveTab = Window:CreateTab("Save Menu", nil)
 
+-- Scanner Tab
 ScannerTab:CreateSection("Scanner Settings")
 
 ScannerTab:CreateSlider({
@@ -315,45 +338,30 @@ ScannerTab:CreateToggle({
     end,
 })
 
--- Save Tab
-SaveTab:CreateSection("Save/Load Configuration")
-
-local configNameInput = SaveTab:CreateInput({
-    Name = "Config File Name",
-    PlaceholderText = "Enter file name (default: settings)",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(text) end,
-})
-
-SaveTab:CreateButton({
-    Name = "Save/Overwrite Config",
-    Callback = function()
-        local newName = configNameInput.CurrentValue or "settings"
-        Window.ConfigurationSaving.FileName = newName
-        Rayfield:SaveConfiguration()
-        Rayfield:Notify({Title = "Config Saved", Content = "Saved as " .. newName, Duration = 3})
-    end,
-})
-
-SaveTab:CreateButton({
-    Name = "Load Config",
-    Callback = function()
-        local newName = configNameInput.CurrentValue or "settings"
-        Window.ConfigurationSaving.FileName = newName
-        Rayfield:LoadConfiguration()
-        Rayfield:Notify({Title = "Config Loaded", Content = "Loaded from " .. newName, Duration = 3})
-        task.defer(scan)
-    end,
-})
-
+-- Load initial configuration
 Rayfield:LoadConfiguration()
 
 -- Auto scan setup
-task.defer(scan)
+task.defer(scan) -- Initial scan
 
+workspace.DescendantAdded:Connect(function(obj)
+    if obj:IsA("ParticleEmitter") then
+        task.defer(scan)
+    end
+end)
+
+workspace.DescendantRemoving:Connect(function(obj)
+    if obj:IsA("ParticleEmitter") then
+        task.defer(scan)
+    end
+end)
+
+-- Optional auto-scan loop (every 5s)
 task.spawn(function()
     while true do
         task.wait(5)
-        if next(enabled) then pcall(scan) end
+        if next(enabled) then
+            pcall(scan)
+        end
     end
 end)
