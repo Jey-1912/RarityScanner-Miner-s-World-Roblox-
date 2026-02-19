@@ -1,4 +1,4 @@
--- Ore Scanner | Miners World - Rayfield Version (English, by Jey, Fully Fixed)
+-- Ore Scanner | Miners World - Rayfield Version (English, by Jey, Back to Original Scan)
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -70,6 +70,7 @@ local MAX_BLOCKS = 200
 local SCAN_DEBOUNCE = 0.35
 
 local createdESP = {}
+
 local function clearESP()
     for _, obj in ipairs(createdESP) do pcall(function() obj:Destroy() end) end
     table.clear(createdESP)
@@ -105,7 +106,7 @@ local function createESP(part, rarityName, color)
     label.TextStrokeColor3 = Color3.new(0,0,0)
 end
 
--- SCAN
+-- SCAN (volta ao original)
 local scanning = false
 local lastScan = 0
 
@@ -231,7 +232,7 @@ local function CreateCountsGui()
         end
     end)
 
-    -- Close button (X)
+    -- Close button
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size = UDim2.new(0,26,0,22)
     closeBtn.Position = UDim2.new(1,-28,0,4)
@@ -244,12 +245,6 @@ local function CreateCountsGui()
 
     closeBtn.MouseButton1Click:Connect(function()
         DestroyCountsGui()
-        -- Desativa o toggle no Rayfield automaticamente
-        Rayfield:Notify({
-            Title = "Counts Window Closed",
-            Content = "Toggle 'Show Counts Window' to reopen.",
-            Duration = 4
-        })
     end)
 
     CountsGui = {Gui = gui, Text = countText}
@@ -263,7 +258,7 @@ local function DestroyCountsGui()
 end
 
 local function updateCountsGUI(counts)
-    if not CountsGui then return end
+    if not CountsGui or not CountsGui.Text then return end
     local lines = {"Limit: " .. tostring(MAX_BLOCKS), ""}
     local names = {}
     for n in pairs(rarities) do table.insert(names, n) end
@@ -313,7 +308,7 @@ ScannerTab:CreateToggle({
     Callback = function(v)
         if v then
             CreateCountsGui()
-            task.defer(scan)  -- Scan imediato após criar a janela
+            task.defer(scan)
         else
             DestroyCountsGui()
         end
@@ -336,11 +331,7 @@ SaveTab:CreateButton({
         local newName = configNameInput.CurrentValue or "settings"
         Window.ConfigurationSaving.FileName = newName
         Rayfield:SaveConfiguration()
-        Rayfield:Notify({
-            Title = "Config Saved",
-            Content = "Saved as " .. newName,
-            Duration = 3
-        })
+        Rayfield:Notify({Title = "Config Saved", Content = "Saved as " .. newName, Duration = 3})
     end,
 })
 
@@ -350,33 +341,19 @@ SaveTab:CreateButton({
         local newName = configNameInput.CurrentValue or "settings"
         Window.ConfigurationSaving.FileName = newName
         Rayfield:LoadConfiguration()
-        Rayfield:Notify({
-            Title = "Config Loaded",
-            Content = "Loaded from " .. newName,
-            Duration = 3
-        })
+        Rayfield:Notify({Title = "Config Loaded", Content = "Loaded from " .. newName, Duration = 3})
         task.defer(scan)
     end,
 })
 
--- Load initial configuration
 Rayfield:LoadConfiguration()
 
--- No final do script, após Rayfield:LoadConfiguration()
-task.delay(1, function()
-    if next(enabled) then  -- Só se alguma raridade ativa
-        pcall(scan)
-    end
-end)
-
 -- Auto scan setup
-task.defer(scan) -- Initial scan
+task.defer(scan)
 
 task.spawn(function()
     while true do
         task.wait(5)
-        if next(enabled) then
-            pcall(scan)
-        end
+        if next(enabled) then pcall(scan) end
     end
 end)
