@@ -1,7 +1,6 @@
--- Ore Scanner | Miners World - Rayfield Version (FIXED Auto Scan)
--- CORREÇÃO: Agora monitora corretamente quando minérios entram/saem da pasta Breaking
--- AUTO via eventos coalescidos | NO RARE | NO EMERALD | Ignora workspace.Breaking
--- Counts GUI | Minimizable | Max Blocks Slider | Force Restart
+-- Ore Scanner | Miners World - Rayfield Version (AUTO SCAN 100% FIXED)
+-- CORREÇÃO: Agora monitora Criação de NOVOS minérios e movimento para Breaking
+-- Usa ChildAdded nos PARTS para detectar quando emitters são adicionados
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -215,6 +214,13 @@ local function clearESP()
 end
 
 local function createESP(part, rarityName, color)
+    -- Remove ESP antigo se existir
+    for _,obj in ipairs(createdESP) do
+        if obj and obj.Parent == part then
+            obj:Destroy()
+        end
+    end
+    
     local highlight = Instance.new("Highlight")
     highlight.Adornee = part
     highlight.FillColor = color
@@ -245,31 +251,100 @@ local function createESP(part, rarityName, color)
     label.Parent = billboard
 end
 
--- Emitter tracking (for efficiency)
+-- Emitter tracking
 local trackedEmitters = {}
-local emitterConnections = {}  -- Store AncestryChanged connections
+local emitterConnections = {}
+local partConnections = {}  -- NOVO: Monitora Parts que podem receber emitters
 
--- CORREÇÃO: Função aprimorada para detectar mudanças de parentesco
+-- NOVO: Monitora uma part para detecção de novos emitters
+local function monitorPartForEmitters(part)
+    if partConnections[part] then return end
+    
+    -- Monitora quando um novo emitter é adicionado à part
+    local conn = part.ChildAdded:Connect(function(child)
+        if child:IsA("ParticleEmitter") and not isInsideBreaking(child) then
+            trackEmitter(child)
+            requestScan()
+        end
+    end)
+    
+    partConnections[part] = conn
+    
+    -- Também monitora se a part for destruída
+    part.AncestryChanged:Connect(function()
+        if not part.Parent then
+            if partConnections[part] then
+                partConnections[part]:Disconnect()
+                partConnections[part] = nil
+            end
+        end
+    end)
+end
+
+-- NOVO: Monitora TODO o workspace para detectar novas Parts
+local function setupWorkspaceMonitoring()
+    -- Monitora novas partes sendo adicionadas
+    workspace.DescendantAdded:Connect(function(descendant)
+        if descendant:IsA("BasePart") then
+            monitorPartForEmitters(descendant)
+            
+            -- Verifica se a part já tem emitters
+            for _, child in ipairs(descendant:GetChildren()) do
+                if child:IsA("ParticleEmitter") and not isInsideBreaking(child) then
+                    trackEmitter(child)
+                end
+            end
+            requestScan()
+        elseif descendant:IsA("ParticleEmitter") and not isInsideBreaking(descendant) then
+            trackEmitter(descendant)
+            requestScan()
+        end
+    end)
+    
+    -- Monitora partes sendo removidas
+    workspace.DescendantRemoving:Connect(function(descendant)
+        if descendant:IsA("ParticleEmitter") then
+            untrackEmitter(descendant)
+            requestScan()
+        elseif descendant:IsA("BasePart") then
+            -- Remove monitoramento da part
+            if partConnections[descendant] then
+                partConnections[descendant]:Disconnect()
+                partConnections[descendant] = nil
+            end
+        end
+    end)
+end
+
+-- Funções de tracking melhoradas
 local function trackEmitter(emitter)
     if trackedEmitters[emitter] then return end
     if isInsideBreaking(emitter) then return end
     
     trackedEmitters[emitter] = true
     
-    -- Remove conexão anterior se existir
+    -- Remove conexão anterior
     if emitterConnections[emitter] then
         emitterConnections[emitter]:Disconnect()
     end
     
-    -- Conecta AncestryChanged para detectar quando entra/sai da pasta Breaking
-    emitterConnections[emitter] = emitter.AncestryChanged:Connect(function(child, parent)
-        -- Se o emitter foi movido para dentro de Breaking, remove do tracking
-        if isInsideBreaking(emitter) then
+    -- Monitora mudanças de parentesco
+    emitterConnections[emitter] = emitter.AncestryChanged:Connect(function()
+        if not emitter.Parent then
+            -- Emitter foi destruído
+            untrackEmitter(emitter)
+        elseif isInsideBreaking(emitter) then
+            -- Emitter foi movido para Breaking
             untrackEmitter(emitter)
         end
-        -- Sempre pede scan quando há mudança de parentesco
         requestScan()
     end)
+    
+    -- Monitora a part pai para quando ela for destruída
+    local part = getRealPartFromEmitter(emitter)
+    if part then
+        monitorPartForEmitters(part)
+    end
 end
 
 local function untrackEmitter(emitter)
@@ -280,14 +355,24 @@ local function untrackEmitter(emitter)
     trackedEmitters[emitter] = nil
 end
 
--- Initial scan: Populate cache once
-for _,obj in ipairs(workspace:GetDescendants()) do
-    if obj:IsA("ParticleEmitter") then
+-- Inicializa monitoramento
+setupWorkspaceMonitoring()
+
+-- Escaneia objetos existentes
+for _, obj in ipairs(workspace:GetDescendants()) do
+    if obj:IsA("BasePart") then
+        monitorPartForEmitters(obj)
+        for _, child in ipairs(obj:GetChildren()) do
+            if child:IsA("ParticleEmitter") and not isInsideBreaking(child) then
+                trackEmitter(child)
+            end
+        end
+    elseif obj:IsA("ParticleEmitter") and not isInsideBreaking(obj) then
         trackEmitter(obj)
     end
 end
 
--- Scan logic (coalesced)
+-- Scan logic
 local scanPending = false
 local scanning = false
 local lastRequest = 0
@@ -310,18 +395,17 @@ local function doScan()
         local processed = 0
         local stepCount = 0
 
-        -- Primeiro, limpa emitters que não existem mais
+        -- Limpa emitters inválidos
         for emitter in pairs(trackedEmitters) do
-            if not emitter or not emitter.Parent then
+            if not emitter or not emitter.Parent or isInsideBreaking(emitter) then
                 untrackEmitter(emitter)
             end
         end
 
-        -- Agora escaneia os emitters válidos
+        -- Escaneia emitters válidos
         for emitter in pairs(trackedEmitters) do
             if processed >= MAX_BLOCKS then break end
             
-            -- Verifica se ainda é válido e não está no Breaking
             if emitter and emitter.Parent and not isInsideBreaking(emitter) then
                 local part = getRealPartFromEmitter(emitter)
                 if part and part.Parent and not isInsideBreaking(part) and not markedParts[part] then
@@ -382,24 +466,35 @@ local function requestScan()
 end
 
 local function forceRestart()
-    -- Clear current ESP, trackers, and connections
+    -- Limpa tudo
     clearESP()
+    
     for emitter, conn in pairs(emitterConnections) do
-        if conn then
-            conn:Disconnect()
-        end
+        if conn then conn:Disconnect() end
     end
     table.clear(emitterConnections)
+    
+    for part, conn in pairs(partConnections) do
+        if conn then conn:Disconnect() end
+    end
+    table.clear(partConnections)
+    
     table.clear(trackedEmitters)
     
-    -- Repopulate trackers from current workspace
+    -- Reescaneia tudo
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("ParticleEmitter") then
+        if obj:IsA("BasePart") then
+            monitorPartForEmitters(obj)
+            for _, child in ipairs(obj:GetChildren()) do
+                if child:IsA("ParticleEmitter") and not isInsideBreaking(child) then
+                    trackEmitter(child)
+                end
+            end
+        elseif obj:IsA("ParticleEmitter") and not isInsideBreaking(obj) then
             trackEmitter(obj)
         end
     end
     
-    -- Force a full scan
     doScan()
 end
 
@@ -462,7 +557,6 @@ ScannerTab:CreateToggle({
     end,
 })
 
--- Force Restart button
 ScannerTab:CreateButton({
     Name = "Force Restart Scanner",
     Callback = function()
@@ -475,48 +569,22 @@ ScannerTab:CreateButton({
     end,
 })
 
--- Load configuration
-Rayfield:LoadConfiguration()
-
--- Events
-workspace.DescendantAdded:Connect(function(obj)
-    if obj:IsA("ParticleEmitter") then
-        trackEmitter(obj)
-        requestScan()
-    end
-end)
-
-workspace.DescendantRemoving:Connect(function(obj)
-    if obj:IsA("ParticleEmitter") then
-        untrackEmitter(obj)
-        requestScan()
-    end
-end)
-
--- CORREÇÃO: Monitora mudanças na pasta Breaking
+-- Monitora pasta Breaking
 if breakingFolder then
-    breakingFolder.ChildAdded:Connect(function()
-        requestScan()
-    end)
-    breakingFolder.ChildRemoved:Connect(function()
-        requestScan()
-    end)
+    breakingFolder.ChildAdded:Connect(requestScan)
+    breakingFolder.ChildRemoved:Connect(requestScan)
 end
 
--- Monitora quando a pasta Breaking é criada (se não existir inicialmente)
 workspace.ChildAdded:Connect(function(child)
     if child.Name == "Breaking" and not breakingFolder then
         breakingFolder = child
-        -- Adiciona eventos na nova pasta
-        breakingFolder.ChildAdded:Connect(function()
-            requestScan()
-        end)
-        breakingFolder.ChildRemoved:Connect(function()
-            requestScan()
-        end)
-        requestScan()
+        breakingFolder.ChildAdded:Connect(requestScan)
+        breakingFolder.ChildRemoved:Connect(requestScan)
     end
 end)
+
+-- Load configuration
+Rayfield:LoadConfiguration()
 
 -- Initial request
 requestScan()
