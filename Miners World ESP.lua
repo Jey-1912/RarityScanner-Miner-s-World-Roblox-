@@ -1,27 +1,37 @@
--- Ore Scanner | Miners World - Rayfield Version (Corrigido: Counter GUI + Anti-Lag)
+-- Ore Scanner | Miners World - Rayfield Version (Optimized, No Lag)
+-- Adapted from provided script: Uses emitter tracking for efficiency
+-- AUTO via coalesced events | NO RARE | NO EMERALD | Ignores workspace.Breaking
+-- Counts GUI | Minimizable | Max Blocks Slider
+
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
     Name = "⛏️ Ore Scanner | Miners World",
     LoadingTitle = "Miners World ⛏️",
-    LoadingSubtitle = "by Jey - Fixed Counter",
-    ConfigurationSaving = { Enabled = true, FolderName = "OreScanner", FileName = "settings" },
+    LoadingSubtitle = "by Jey - Optimized",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "OreScanner",
+        FileName = "settings"
+    },
     KeySystem = false,
 })
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local breakingFolder = workspace:FindFirstChild("Breaking")
 
--- Pasta de scan (workspace inteiro por enquanto; se achar pasta de ores, troque)
-local scanFolder = workspace
-
 -- Helpers
 local function hexToColor3(hex)
     hex = hex:gsub("#","")
-    if #hex == 3 then hex = hex:sub(1,1)..hex:sub(1,1)..hex:sub(2,2)..hex:sub(2,2)..hex:sub(3,3)..hex:sub(3,3) end
-    if #hex ~= 6 then return Color3.new(1,1,1) end
+    if #hex == 3 then
+        hex = hex:sub(1,1)..hex:sub(1,1)..hex:sub(2,2)..hex:sub(2,2)..hex:sub(3,3)..hex:sub(3,3)
+    end
+    if #hex ~= 6 then
+        return Color3.new(1,1,1)
+    end
     local r = tonumber(hex:sub(1,2), 16) or 255
     local g = tonumber(hex:sub(3,4), 16) or 255
     local b = tonumber(hex:sub(5,6), 16) or 255
@@ -29,17 +39,41 @@ local function hexToColor3(hex)
 end
 
 local function isInsideBreaking(obj)
-    return breakingFolder and obj:IsDescendantOf(breakingFolder)
+    return breakingFolder ~= nil and obj:IsDescendantOf(breakingFolder)
 end
 
-local function colorNear(a, b)
+-- CONFIG
+local MAX_BLOCKS = 200
+local RESCAN_DEBOUNCE = 0.35
+local YIELD_EVERY = 120
+
+-- Rarities (NO RARE, NO EMERALD)
+local rarities = {
+    Uncommon = {Color = hexToColor3("#00ff00")},
+    Epic = {Color = hexToColor3("#8a2be2")},
+    Legendary = {Color = hexToColor3("#ffff00")},
+    Mythic = {Color = hexToColor3("#ff0000")},
+    Ethereal = {Color = hexToColor3("#ff1493")},
+    Celestial = {Color = hexToColor3("#00ffff")},
+    Zenith = {Color = hexToColor3("#800080")},
+    Divine = {Color = hexToColor3("#000000")},
+    Nil = {Color = hexToColor3("#635f62")}
+}
+
+local enabled = {}
+for name in pairs(rarities) do
+    enabled[name] = false
+end
+
+-- Match utilities
+local function colorNear(a,b)
     return math.abs(a.R - b.R) < 0.18 and math.abs(a.G - b.G) < 0.18 and math.abs(a.B - b.B) < 0.18
 end
 
 local function getEmitterColors(emitter)
     if not emitter.Color then return nil end
     local colors = {}
-    for _, kp in ipairs(emitter.Color.Keypoints) do
+    for _,kp in ipairs(emitter.Color.Keypoints) do
         table.insert(colors, kp.Value)
     end
     return colors
@@ -47,17 +81,20 @@ end
 
 local function getRealPartFromEmitter(emitter)
     local p = emitter.Parent
-    if p and p:IsA("Attachment") then p = p.Parent end
-    if p and p:IsA("BasePart") then return p end
+    if p and p:IsA("Attachment") then
+        p = p.Parent
+    end
+    if p and p:IsA("BasePart") then
+        return p
+    end
     return nil
 end
 
--- Minimize (mantido igual)
+-- Minimize function
 local function makeMinimizable(frame, titleLabel, contentObjects)
     local minimized = false
     local originalSize = frame.Size
     local btn = Instance.new("TextButton")
-    btn.Name = "MinimizeButton"
     btn.Size = UDim2.new(0, 28, 0, 22)
     btn.Position = UDim2.new(1, -34, 0, 6)
     btn.BackgroundColor3 = Color3.fromRGB(35,35,35)
@@ -67,160 +104,37 @@ local function makeMinimizable(frame, titleLabel, contentObjects)
     btn.TextSize = 16
     btn.Text = "–"
     btn.Parent = frame
-    local btnStroke = Instance.new("UIStroke")
-    btnStroke.Color = Color3.fromRGB(80,80,80)
-    btnStroke.Parent = btn
-
+    local st = Instance.new("UIStroke")
+    st.Color = Color3.fromRGB(80,80,80)
+    st.Parent = btn
     local function apply()
         if minimized then
             frame.Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset, 0, 48)
             btn.Text = "+"
-            for _,obj in contentObjects do if obj and obj.Parent then obj.Visible = false end end
+            for _,obj in ipairs(contentObjects) do
+                if obj and obj.Parent then obj.Visible = false end
+            end
         else
             frame.Size = originalSize
             btn.Text = "–"
-            for _,obj in contentObjects do if obj and obj.Parent then obj.Visible = true end end
+            for _,obj in ipairs(contentObjects) do
+                if obj and obj.Parent then obj.Visible = true end
+            end
         end
-        titleLabel.Visible = true
-        btn.Visible = true
+        if titleLabel then titleLabel.Visible = true end
     end
-
-    btn.MouseButton1Click:Connect(function() minimized = not minimized apply() end)
-    apply()
-    return function() return minimized end
-end
-
--- Rarities (incluindo Rare que tinha no original)
-local rarities = {
-    Uncommon  = {Color = hexToColor3("#00ff00")},
-    Rare      = {Color = hexToColor3("#1e90ff")},
-    Epic      = {Color = hexToColor3("#8a2be2")},
-    Legendary = {Color = hexToColor3("#ffff00")},
-    Mythic    = {Color = hexToColor3("#ff0000")},
-    Ethereal  = {Color = hexToColor3("#ff1493")},
-    Celestial = {Color = hexToColor3("#00ffff")},
-    Zenith    = {Color = hexToColor3("#800080")},
-    Divine    = {Color = hexToColor3("#000000")},
-    Nil       = {Color = hexToColor3("#635f62")}
-}
-
-local enabled = {}
-for name in pairs(rarities) do enabled[name] = false end
-
-local MAX_BLOCKS = 200
-local SCAN_DEBOUNCE = 0.8  -- Aumentado pra reduzir lag
-local createdESP = {}
-
-local function anyEnabled()
-    for _,v in enabled do if v then return true end end
-    return false
-end
-
-local function zeroCounts()
-    local c = {}
-    for n in pairs(rarities) do c[n] = 0 end
-    return c
-end
-
-local function clearESP()
-    for _,obj in createdESP do if obj and obj.Parent then obj:Destroy() end end
-    table.clear(createdESP)
-end
-
-local function createESP(part, rarityName, color)
-    local h = Instance.new("Highlight")
-    h.Name = "OreScannerHighlight"
-    h.Adornee = part
-    h.FillColor = color
-    h.FillTransparency = 0.65
-    h.OutlineColor = Color3.new(1,1,1)
-    h.OutlineTransparency = 0
-    h.DepthMode = Enum.HighlightDepthMode.Occluded
-    h.Parent = part
-    table.insert(createdESP, h)
-
-    local bb = Instance.new("BillboardGui")
-    bb.Name = "OreScannerBillboard"
-    bb.Size = UDim2.fromOffset(150,36)
-    bb.StudsOffset = Vector3.new(0, part.Size.Y + 0.6, 0)
-    bb.AlwaysOnTop = true
-    bb.Parent = part
-    table.insert(createdESP, bb)
-
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.fromScale(1,1)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = rarityName
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 18
-    lbl.TextColor3 = color
-    lbl.TextStrokeTransparency = 0
-    lbl.TextStrokeColor3 = Color3.new(0,0,0)
-    lbl.Parent = bb
-end
-
-local scanning = false
-local lastScan = 0
-
-local function scan()
-    if scanning then return end
-    if os.clock() - lastScan < SCAN_DEBOUNCE then return end
-    scanning = true
-    lastScan = os.clock()
-
-    local ok, err = pcall(function()
-        clearESP()
-        local counts = zeroCounts()
-        local processed = 0
-        local marked = {}
-
-        for _,obj in scanFolder:GetDescendants() do
-            if processed >= MAX_BLOCKS then break end
-            if not obj:IsA("ParticleEmitter") then continue end
-            if isInsideBreaking(obj) then continue end
-
-            local part = getRealPartFromEmitter(obj)
-            if not part or isInsideBreaking(part) or marked[part] then continue end
-
-            local colors = getEmitterColors(obj)
-            if not colors then continue end
-
-            local found
-            for rName, data in rarities do
-                if enabled[rName] then
-                    for _,c in colors do
-                        if colorNear(c, data.Color) then
-                            found = rName
-                            break
-                        end
-                    end
-                end
-                if found then break end
-            end
-
-            if found then
-                marked[part] = true
-                counts[found] += 1
-                processed += 1
-                createESP(part, found, rarities[found].Color)
-            end
-        end
-
-        updateCountsGUI(counts)
-        print("[OreScanner] Scan concluído - " .. processed .. " ores encontrados")
+    btn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        apply()
     end)
-
-    scanning = false
-    if not ok then
-        warn("[OreScanner] Erro no scan: " .. tostring(err))
-    end
+    apply()
 end
 
--- GUI Counts (mais robusta)
+-- Counts GUI
 local CountsGui = nil
 
 local function CreateCountsGui()
-    if CountsGui then CountsGui.Gui:Destroy() end  -- Limpa se existir duplicata
+    if CountsGui then CountsGui.Gui:Destroy() end
 
     local gui = Instance.new("ScreenGui")
     gui.Name = "OreCounts"
@@ -260,102 +174,258 @@ local function CreateCountsGui()
     text.TextWrapped = true
     text.TextSize = 14
     text.Font = Enum.Font.Gotham
-    text.Text = "Sem dados ainda."
+    text.Text = "No data yet."
     text.Parent = frame
 
     makeMinimizable(frame, title, {text})
 
     CountsGui = {Gui = gui, Text = text}
-    updateCountsGUI(zeroCounts())  -- Inicializa zerado
 end
 
 local function DestroyCountsGui()
-    if CountsGui then CountsGui.Gui:Destroy() CountsGui = nil end
+    if CountsGui then
+        CountsGui.Gui:Destroy()
+        CountsGui = nil
+    end
 end
 
 local function updateCountsGUI(counts)
-    if not CountsGui or not CountsGui.Text or not CountsGui.Text.Parent then 
-        warn("[OreScanner] CountsGui não encontrada ou destruída!")
-        return 
-    end
-
-    local lines = {"Limite: " .. MAX_BLOCKS, ""}
+    if not CountsGui or not CountsGui.Text then return end
+    local lines = {}
+    table.insert(lines, "Limit: " .. tostring(MAX_BLOCKS))
+    table.insert(lines, "")
     local names = {}
-    for n in pairs(rarities) do table.insert(names, n) end
+    for name in pairs(rarities) do table.insert(names, name) end
     table.sort(names)
-    for _,n in names do
-        table.insert(lines, n .. ": " .. (counts[n] or 0))
+    for _,name in ipairs(names) do
+        table.insert(lines, string.format("%s: %d", name, counts[name] or 0))
     end
     CountsGui.Text.Text = table.concat(lines, "\n")
 end
 
--- Tab
-local Tab = Window:CreateTab("Scanner")
+-- ESP
+local createdESP = {}
+local function clearESP()
+    for _,obj in ipairs(createdESP) do
+        if obj and obj.Parent then
+            obj:Destroy()
+        end
+    end
+    table.clear(createdESP)
+end
 
-Tab:CreateSection("Configurações")
-Tab:CreateSlider({
+local function createESP(part, rarityName, color)
+    local highlight = Instance.new("Highlight")
+    highlight.Adornee = part
+    highlight.FillColor = color
+    highlight.FillTransparency = 0.65
+    highlight.OutlineColor = Color3.new(1,1,1)
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+    highlight.Parent = part
+    table.insert(createdESP, highlight)
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Size = UDim2.fromOffset(150, 36)
+    billboard.StudsOffset = Vector3.new(0, part.Size.Y + 0.6, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = part
+    table.insert(createdESP, billboard)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.fromScale(1,1)
+    label.BackgroundTransparency = 1
+    label.Text = rarityName
+    label.Font = Enum.Font.GothamBold
+    label.TextScaled = false
+    label.TextSize = 18
+    label.TextColor3 = color
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.new(0,0,0)
+    label.Parent = billboard
+end
+
+-- Emitter tracking (for efficiency)
+local trackedEmitters = {}
+local function trackEmitter(emitter)
+    if trackedEmitters[emitter] then return end
+    if isInsideBreaking(emitter) then return end
+    trackedEmitters[emitter] = true
+end
+
+local function untrackEmitter(emitter)
+    trackedEmitters[emitter] = nil
+end
+
+-- Initial scan: Populate cache once
+for _,obj in ipairs(workspace:GetDescendants()) do
+    if obj:IsA("ParticleEmitter") then
+        trackEmitter(obj)
+    end
+end
+
+-- Scan logic (coalesced)
+local scanPending = false
+local scanning = false
+local lastRequest = 0
+
+local function zeroCounts()
+    local counts = {}
+    for name in pairs(rarities) do counts[name] = 0 end
+    return counts
+end
+
+local function doScan()
+    if scanning then return end
+    scanning = true
+    scanPending = false
+
+    local ok, err = pcall(function()
+        clearESP()
+        local counts = zeroCounts()
+        local markedParts = {}
+        local processed = 0
+        local stepCount = 0
+
+        for emitter in pairs(trackedEmitters) do
+            if processed >= MAX_BLOCKS then break end
+            if not emitter or not emitter.Parent then
+                trackedEmitters[emitter] = nil
+            else
+                if not isInsideBreaking(emitter) then
+                    local part = getRealPartFromEmitter(emitter)
+                    if part and part.Parent and not isInsideBreaking(part) and not markedParts[part] then
+                        local colors = getEmitterColors(emitter)
+                        if colors then
+                            local found = nil
+                            for rarityName, data in pairs(rarities) do
+                                if enabled[rarityName] then
+                                    for _,c in ipairs(colors) do
+                                        if colorNear(c, data.Color) then
+                                            found = rarityName
+                                            break
+                                        end
+                                    end
+                                end
+                                if found then break end
+                            end
+                            if found then
+                                markedParts[part] = true
+                                counts[found] += 1
+                                processed += 1
+                                createESP(part, found, rarities[found].Color)
+                            end
+                        end
+                    end
+                end
+            end
+            stepCount += 1
+            if stepCount >= YIELD_EVERY then
+                stepCount = 0
+                RunService.Heartbeat:Wait()
+            end
+        end
+        if CountsGui then
+            updateCountsGUI(counts)
+        end
+    end)
+
+    scanning = false
+    if not ok then
+        warn("[OreScanner] Scan error: " .. tostring(err))
+    end
+end
+
+local function requestScan()
+    lastRequest = os.clock()
+    if scanPending then return end
+    scanPending = true
+    task.delay(RESCAN_DEBOUNCE, function()
+        if os.clock() - lastRequest >= RESCAN_DEBOUNCE - 0.01 then
+            doScan()
+        else
+            scanPending = false
+            requestScan()
+        end
+    end)
+end
+
+local function anyEnabled()
+    for _, v in pairs(enabled) do
+        if v then return true end
+    end
+    return false
+end
+
+-- Rayfield Tab
+local ScannerTab = Window:CreateTab("Scanner")
+
+ScannerTab:CreateSection("Scanner Settings")
+
+ScannerTab:CreateSlider({
     Name = "Max Blocks",
-    Range = {1,5000},
+    Range = {1, 5000},
     Increment = 1,
     CurrentValue = MAX_BLOCKS,
+    Flag = "MaxBlocksSlider",
     Callback = function(v)
         MAX_BLOCKS = v
-        task.defer(scan)
-    end
+        requestScan()
+    end,
 })
 
-Tab:CreateSection("Raridades")
-for _, name in {"Uncommon","Rare","Epic","Legendary","Mythic","Ethereal","Celestial","Zenith","Divine","Nil"} do
-    Tab:CreateToggle({
+ScannerTab:CreateSection("Rarities")
+
+for _, name in ipairs({"Uncommon", "Epic", "Legendary", "Mythic", "Ethereal", "Celestial", "Zenith", "Divine", "Nil"}) do
+    ScannerTab:CreateToggle({
         Name = name,
         CurrentValue = false,
+        Flag = name .. "Toggle",
         Callback = function(v)
             enabled[name] = v
             if not anyEnabled() then
                 clearESP()
-                if CountsGui then updateCountsGUI(zeroCounts()) end
+                if CountsGui then
+                    updateCountsGUI(zeroCounts())
+                end
                 return
             end
-            task.defer(scan)
-        end
+            requestScan()
+        end,
     })
 end
 
-Tab:CreateSection("Contador")
-Tab:CreateToggle({
-    Name = "Mostrar Janela de Contagem",
+ScannerTab:CreateToggle({
+    Name = "Show Counts Window",
     CurrentValue = false,
+    Flag = "ShowCountsToggle",
     Callback = function(v)
         if v then
             CreateCountsGui()
-            task.defer(scan)  -- Força scan ao abrir
+            requestScan()
         else
             DestroyCountsGui()
         end
-    end
+    end,
 })
 
--- Botão de teste pra confirmar GUI
-Tab:CreateButton({
-    Name = "Teste: Forçar Update Contador",
-    Callback = function()
-        CreateCountsGui()
-        local test = zeroCounts()
-        test.Uncommon = 99; test.Epic = 50; test.Legendary = 10
-        updateCountsGUI(test)
-        Rayfield:Notify({Title="Teste", Content="Contador forçado! Veja se mudou.", Duration=4})
-    end
-})
-
+-- Load configuration
 Rayfield:LoadConfiguration()
 
--- Loop auto-scan
-task.spawn(function()
-    while true do
-        task.wait(5)
-        if anyEnabled() then task.defer(scan) end
+-- Events
+workspace.DescendantAdded:Connect(function(obj)
+    if obj:IsA("ParticleEmitter") then
+        trackEmitter(obj)
+        requestScan()
     end
 end)
 
--- Inicial
-task.defer(scan)
+workspace.DescendantRemoving:Connect(function(obj)
+    if obj:IsA("ParticleEmitter") then
+        untrackEmitter(obj)
+        requestScan()
+    end
+end)
+
+-- Initial request
+requestScan()
