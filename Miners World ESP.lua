@@ -1,4 +1,4 @@
--- Ore Scanner | Miners World - Rayfield Version (English, by Jey, Lag Fixed)
+-- Ore Scanner | Miners World - Rayfield Version (English, by Jey, Fixed ESP & Counts)
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -18,16 +18,12 @@ local breakingFolder = workspace:FindFirstChild("Breaking")
 -- Helpers
 local function hexToColor3(hex)
     hex = hex:gsub("#","")
-    if #hex == 3 then
-        hex = hex:sub(1,1)..hex:sub(1,1)..hex:sub(2,2)..hex:sub(2,2)..hex:sub(3,3)..hex:sub(3,3)
-    end
-    if #hex ~= 6 then
-        return Color3.new(1,1,1)
-    end
+    if #hex == 3 then hex = hex:sub(1,1)..hex:sub(1,1)..hex:sub(2,2)..hex:sub(2,2)..hex:sub(3,3)..hex:sub(3,3) end
+    if #hex ~= 6 then return Color3.new(1,1,1) end
     local r = tonumber(hex:sub(1,2), 16) or 255
     local g = tonumber(hex:sub(3,4), 16) or 255
     local b = tonumber(hex:sub(5,6), 16) or 255
-    return Color3.fromRGB(r, g, b)
+    return Color3.fromRGB(r,g,b)
 end
 
 local function isInsideBreaking(obj)
@@ -35,9 +31,7 @@ local function isInsideBreaking(obj)
 end
 
 local function colorNear(a, b)
-    return math.abs(a.R - b.R) < 0.18 and
-           math.abs(a.G - b.G) < 0.18 and
-           math.abs(a.B - b.B) < 0.18
+    return math.abs(a.R - b.R) < 0.18 and math.abs(a.G - b.G) < 0.18 and math.abs(a.B - b.B) < 0.18
 end
 
 local function getEmitterColors(emitter)
@@ -51,16 +45,12 @@ end
 
 local function getRealPartFromEmitter(emitter)
     local p = emitter.Parent
-    if p and p:IsA("Attachment") then
-        p = p.Parent
-    end
-    if p and p:IsA("BasePart") then
-        return p
-    end
+    if p and p:IsA("Attachment") then p = p.Parent end
+    if p and p:IsA("BasePart") then return p end
     return nil
 end
 
--- Rarities (NO EMERALD, NO RARE)
+-- Rarities
 local rarities = {
     Uncommon  = {Color = hexToColor3("#00ff00")},
     Epic      = {Color = hexToColor3("#8a2be2")},
@@ -74,20 +64,14 @@ local rarities = {
 }
 
 local enabled = {}
-for name in pairs(rarities) do
-    enabled[name] = false
-end
+for name in pairs(rarities) do enabled[name] = false end
 
 local MAX_BLOCKS = 200
-local SCAN_DEBOUNCE = 4  -- Increased to reduce lag
+local SCAN_DEBOUNCE = 3.0  -- Ajustado para bom equilíbrio
 
 local createdESP = {}
 local function clearESP()
-    for _, obj in ipairs(createdESP) do
-        if obj and obj.Parent then
-            obj:Destroy()
-        end
-    end
+    for _, obj in ipairs(createdESP) do pcall(function() obj:Destroy() end) end
     table.clear(createdESP)
 end
 
@@ -103,26 +87,25 @@ local function createESP(part, rarityName, color)
     table.insert(createdESP, highlight)
 
     local billboard = Instance.new("BillboardGui")
+    billboard.Adornee = part
     billboard.Size = UDim2.fromOffset(150, 36)
     billboard.StudsOffset = Vector3.new(0, part.Size.Y + 0.6, 0)
     billboard.AlwaysOnTop = true
     billboard.Parent = part
     table.insert(createdESP, billboard)
 
-    local label = Instance.new("TextLabel")
+    local label = Instance.new("TextLabel", billboard)
     label.Size = UDim2.fromScale(1,1)
     label.BackgroundTransparency = 1
     label.Text = rarityName
     label.Font = Enum.Font.GothamBold
-    label.TextScaled = false
     label.TextSize = 18
     label.TextColor3 = color
     label.TextStrokeTransparency = 0
     label.TextStrokeColor3 = Color3.new(0,0,0)
-    label.Parent = billboard
 end
 
--- Cache otimizado de ParticleEmitters
+-- Cache de ParticleEmitters
 local cachedEmitters = {}
 
 local function refreshCache()
@@ -134,17 +117,16 @@ local function refreshCache()
     end
 end
 
--- Inicializa cache uma vez
 task.spawn(function()
-    task.wait(2)  -- espera mapa carregar
+    task.wait(2)
     refreshCache()
+    scan()  -- Scan inicial após cache
 end)
 
--- Atualiza cache só quando partículas mudam
 workspace.DescendantAdded:Connect(function(obj)
     if obj:IsA("ParticleEmitter") and not isInsideBreaking(obj) then
         table.insert(cachedEmitters, obj)
-        task.delay(1.5, scan)  -- delay maior para menos lag
+        task.delay(1, scan)
     end
 end)
 
@@ -156,11 +138,11 @@ workspace.DescendantRemoving:Connect(function(obj)
                 break
             end
         end
-        task.delay(1.5, scan)
+        task.delay(1, scan)
     end
 end)
 
--- SCAN otimizado
+-- SCAN corrigido
 local scanning = false
 local lastScan = 0
 
@@ -174,28 +156,26 @@ local function scan()
     clearESP()
 
     local counts = {}
-    for name in pairs(rarities) do
-        counts[name] = 0
-    end
+    for name in pairs(rarities) do counts[name] = 0 end
 
     local processed = 0
     local markedParts = {}
 
-    for _,obj in ipairs(cachedEmitters) do
+    for _, emitter in ipairs(cachedEmitters) do
         if processed >= MAX_BLOCKS then break end
 
-        local part = getRealPartFromEmitter(obj)
+        local part = getRealPartFromEmitter(emitter)
         if not part or markedParts[part] then continue end
 
-        local colors = getEmitterColors(obj)
+        local colors = getEmitterColors(emitter)
         if not colors then continue end
 
         local foundRarity = nil
-        for rarityName, data in pairs(rarities) do
-            if enabled[rarityName] then
-                for _,c in ipairs(colors) do
+        for name, data in pairs(rarities) do
+            if enabled[name] then
+                for _, c in ipairs(colors) do
                     if colorNear(c, data.Color) then
-                        foundRarity = rarityName
+                        foundRarity = name
                         break
                     end
                 end
@@ -210,20 +190,20 @@ local function scan()
             createESP(part, foundRarity, rarities[foundRarity].Color)
         end
 
-        if processed % 50 == 0 then task.wait(0.001) end  -- respiro para não congelar
+        if processed % 50 == 0 then task.wait(0.001) end
     end
 
     updateCountsGUI(counts)
-
     scanning = false
 end
 
+-- Counts GUI com minimizar e FECHAR
 local CountsGui = nil
 local function CreateCountsGui()
     if CountsGui then return end
 
     local gui = Instance.new("ScreenGui")
-    gui.Name = "CountsGui"
+    gui.Name = "OreCounts"
     gui.ResetOnSpawn = false
     gui.Parent = playerGui
 
@@ -232,7 +212,6 @@ local function CreateCountsGui()
     frame.Position = UDim2.fromScale(0.43, 0.28)
     frame.BackgroundColor3 = Color3.fromRGB(18,18,18)
     frame.BackgroundTransparency = 0.1
-    frame.BorderSizePixel = 0
     frame.Active = true
     frame.Draggable = true
     frame.Parent = gui
@@ -259,13 +238,54 @@ local function CreateCountsGui()
     countText.TextXAlignment = Enum.TextXAlignment.Left
     countText.TextYAlignment = Enum.TextYAlignment.Top
     countText.TextWrapped = true
-    countText.TextScaled = false
     countText.TextSize = 14
     countText.Font = Enum.Font.Gotham
     countText.Text = "No data yet."
     countText.Parent = frame
 
-    makeMinimizable(frame, title, {countText})
+    -- Botão Minimizar
+    local minBtn = Instance.new("TextButton")
+    minBtn.Size = UDim2.new(0,26,0,22)
+    minBtn.Position = UDim2.new(1,-58,0,4)
+    minBtn.BackgroundColor3 = Color3.fromRGB(35,35,45)
+    minBtn.TextColor3 = Color3.new(1,1,1)
+    minBtn.Font = Enum.Font.GothamBold
+    minBtn.TextSize = 16
+    minBtn.Text = "–"
+    minBtn.Parent = frame
+
+    local minimized = false
+    local origSize = frame.Size
+
+    minBtn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        if minimized then
+            frame.Size = UDim2.new(origSize.X.Scale, origSize.X.Offset, 0, 38)
+            countText.Visible = false
+            minBtn.Text = "+"
+        else
+            frame.Size = origSize
+            countText.Visible = true
+            minBtn.Text = "–"
+        end
+    end)
+
+    -- Botão Fechar (X)
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0,26,0,22)
+    closeBtn.Position = UDim2.new(1,-28,0,4)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(200,50,50)
+    closeBtn.TextColor3 = Color3.new(1,1,1)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 16
+    closeBtn.Text = "X"
+    closeBtn.Parent = frame
+
+    closeBtn.MouseButton1Click:Connect(function()
+        DestroyCountsGui()
+        -- Desativa o toggle no Rayfield (opcional, mas recomendado)
+        Rayfield:Notify({Title = "Counts Closed", Content = "Use the toggle to reopen.", Duration = 4})
+    end)
 
     CountsGui = {Gui = gui, Text = countText}
 end
@@ -279,14 +299,12 @@ end
 
 local function updateCountsGUI(counts)
     if not CountsGui then return end
-    local lines = {}
-    table.insert(lines, "Limit: " .. tostring(MAX_BLOCKS))
-    table.insert(lines, "")
+    local lines = {"Limit: " .. MAX_BLOCKS, ""}
     local names = {}
-    for name in pairs(rarities) do table.insert(names, name) end
+    for n in pairs(rarities) do table.insert(names, n) end
     table.sort(names)
-    for _,name in ipairs(names) do
-        table.insert(lines, string.format("%s: %d", name, counts[name] or 0))
+    for _, name in ipairs(names) do
+        lines[#lines+1] = name .. ": " .. (counts[name] or 0)
     end
     CountsGui.Text.Text = table.concat(lines, "\n")
 end
@@ -295,7 +313,6 @@ end
 local ScannerTab = Window:CreateTab("Scanner", nil)
 local SaveTab = Window:CreateTab("Save Menu", nil)
 
--- Scanner Tab
 ScannerTab:CreateSection("Scanner Settings")
 
 ScannerTab:CreateSlider({
@@ -310,7 +327,7 @@ ScannerTab:CreateSlider({
     end,
 })
 
-ScannerTab:CreateSection("Rarities")
+ScannerTab:CreateSection("Rarities (toggle to enable)")
 
 for _, name in ipairs({"Uncommon", "Epic", "Legendary", "Mythic", "Ethereal", "Celestial", "Zenith", "Divine", "Nil"}) do
     ScannerTab:CreateToggle({
@@ -338,16 +355,14 @@ ScannerTab:CreateToggle({
     end,
 })
 
--- Save Tab
+-- Save Tab (já estava correto)
 SaveTab:CreateSection("Save/Load Configuration")
 
 local configNameInput = SaveTab:CreateInput({
     Name = "Config File Name",
     PlaceholderText = "Enter file name (default: settings)",
     RemoveTextAfterFocusLost = false,
-    Callback = function(text)
-        -- Update FileName when entered
-    end,
+    Callback = function(text) end,
 })
 
 SaveTab:CreateButton({
@@ -356,11 +371,7 @@ SaveTab:CreateButton({
         local newName = configNameInput.Value or "settings"
         Window.ConfigurationSaving.FileName = newName
         Rayfield:SaveConfiguration()
-        Rayfield:Notify({
-            Title = "Config Saved",
-            Content = "Configuration saved as " .. newName,
-            Duration = 3
-        })
+        Rayfield:Notify({Title = "Config Saved", Content = "Saved as " .. newName, Duration = 3})
     end,
 })
 
@@ -370,28 +381,20 @@ SaveTab:CreateButton({
         local newName = configNameInput.Value or "settings"
         Window.ConfigurationSaving.FileName = newName
         Rayfield:LoadConfiguration()
-        Rayfield:Notify({
-            Title = "Config Loaded",
-            Content = "Configuration loaded from " .. newName,
-            Duration = 3
-        })
-        -- Force a scan after load to update
+        Rayfield:Notify({Title = "Config Loaded", Content = "Loaded from " .. newName, Duration = 3})
         task.defer(scan)
     end,
 })
 
--- Load initial configuration
 Rayfield:LoadConfiguration()
 
--- Auto scan setup
-task.defer(scan) -- Initial scan
+-- Auto scan inicial
+task.delay(3, scan)
 
--- Optional auto-scan loop if needed (every 5s)
+-- Loop de segurança (opcional)
 task.spawn(function()
     while true do
-        task.wait(5)
-        if next(enabled) then -- Only if any rarity enabled
-            pcall(scan)
-        end
+        task.wait(6)
+        if next(enabled) then pcall(scan) end
     end
 end)
