@@ -1,5 +1,5 @@
 -- Ore Scanner | Miners World - Rayfield Version (English, by Jey, Save Tab Removed, Fixed Errors)
--- Atualizado com correções de auto-scan, limpeza de ESP e contadores
+-- Atualizado com otimizações anti-lag: remoção de varredura pesada, debounce pending, remoção de eventos globais
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -19,6 +19,9 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local breakingFolder = workspace:FindFirstChild("Breaking")
+
+-- Pasta para scan (placeholder: workspace inteiro; troque pra pasta dos ores pra otimizar mais)
+local scanFolder = workspace  -- Ex: workspace:FindFirstChild("MiningArea") ou workspace.Ores
 
 -- Helpers
 local function hexToColor3(hex)
@@ -121,7 +124,7 @@ local enabled = {}
 for name in pairs(rarities) do enabled[name] = false end
 
 local MAX_BLOCKS    = 200
-local SCAN_DEBOUNCE = 0.35
+local SCAN_DEBOUNCE = 0.5  -- Aumentado pra dar mais folga
 local createdESP    = {}
 
 local function anyEnabled()
@@ -140,20 +143,13 @@ local function zeroCounts()
 end
 
 local function clearESP()
-    -- Limpeza dos objetos rastreados
+    -- Só limpa o que está rastreado (sem varredura pesada no workspace)
     for _, obj in ipairs(createdESP) do
         if obj and obj.Parent then
             obj:Destroy()
         end
     end
     table.clear(createdESP)
-
-    -- Limpeza forçada (remove sobras que escaparam do rastreamento)
-    for _, d in ipairs(workspace:GetDescendants()) do
-        if d.Name == "OreScannerHighlight" or d.Name == "OreScannerBillboard" then
-            d:Destroy()
-        end
-    end
 end
 
 local function createESP(part, rarityName, color)
@@ -189,9 +185,10 @@ local function createESP(part, rarityName, color)
     label.Parent = billboard
 end
 
--- SCAN principal (agora protegido)
+-- SCAN principal (protegido e debounced)
 local scanning = false
 local lastScan = 0
+local pendingScan = false  -- Novo: flag pra coalescing
 
 local function scan()
     if scanning then return end
@@ -199,6 +196,7 @@ local function scan()
 
     scanning = true
     lastScan = os.clock()
+    pendingScan = false  -- Reseta após rodar
 
     local success, err = pcall(function()
         clearESP()
@@ -207,7 +205,7 @@ local function scan()
         local processed = 0
         local markedParts = {}
 
-        for _, obj in ipairs(workspace:GetDescendants()) do
+        for _, obj in ipairs(scanFolder:GetDescendants()) do  -- Usa scanFolder em vez de workspace
             if processed >= MAX_BLOCKS then break end
             if not obj:IsA("ParticleEmitter") then continue end
             if isInsideBreaking(obj) then continue end
@@ -251,7 +249,17 @@ local function scan()
     end
 end
 
--- Interface de contagem
+-- Loop leve pra checar pending (roda a cada 0.1s, mas é super leve)
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if pendingScan and not scanning then
+            scan()
+        end
+    end
+end)
+
+-- Interface de contagem (sem mudanças)
 local CountsGui = nil
 
 local function CreateCountsGui()
@@ -341,7 +349,7 @@ ScannerTab:CreateSlider({
     Flag = "MaxBlocksSlider",
     Callback = function(v)
         MAX_BLOCKS = v
-        task.defer(scan)
+        pendingScan = true  -- Marca pending em vez de chamar direto
     end,
 })
 
@@ -363,7 +371,7 @@ for _, name in ipairs({"Uncommon", "Epic", "Legendary", "Mythic", "Ethereal", "C
                 return
             end
 
-            task.defer(scan)
+            pendingScan = true  -- Marca pending
         end,
     })
 end
@@ -375,7 +383,7 @@ ScannerTab:CreateToggle({
     Callback = function(v)
         if v then
             CreateCountsGui()
-            task.defer(scan)
+            pendingScan = true
         else
             DestroyCountsGui()
         end
@@ -390,19 +398,21 @@ task.spawn(function()
     while true do
         task.wait(5)
         if anyEnabled() then
-            pcall(scan)
+            pendingScan = true  -- Marca pending pro loop checar
         end
     end
 end)
 
--- Triggers manuais
-workspace.DescendantAdded:Connect(function(obj)
-    if obj:IsA("ParticleEmitter") then task.defer(scan) end
+-- Eventos comentados (removidos pra anti-lag; descomente e troque workspace por scanFolder se quiser reativar restrito)
+--[[
+scanFolder.DescendantAdded:Connect(function(obj)
+    if obj:IsA("ParticleEmitter") then pendingScan = true end
 end)
 
-workspace.DescendantRemoving:Connect(function(obj)
-    if obj:IsA("ParticleEmitter") then task.defer(scan) end
+scanFolder.DescendantRemoving:Connect(function(obj)
+    if obj:IsA("ParticleEmitter") then pendingScan = true end
 end)
+--]]
 
 -- Scan inicial
-task.defer(scan)
+pendingScan = true
