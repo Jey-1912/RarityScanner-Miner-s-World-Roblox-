@@ -2,7 +2,8 @@
 -- Adapted from provided script: Uses emitter tracking for efficiency
 -- AUTO via coalesced events | NO RARE | NO EMERALD | Ignores workspace.Breaking
 -- Counts GUI | Minimizable | Max Blocks Slider
--- Added: Force Rescan button to reset and fully restart scanner
+-- Added: Force Restart button to reset and fully restart scanner
+-- Fixed: Autoscan now detects reparenting (e.g., to Breaking folder) via AncestryChanged
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -248,13 +249,24 @@ end
 
 -- Emitter tracking (for efficiency)
 local trackedEmitters = {}
+local emitterConnections = {}  -- To store AncestryChanged connections
+
 local function trackEmitter(emitter)
     if trackedEmitters[emitter] then return end
     if isInsideBreaking(emitter) then return end
     trackedEmitters[emitter] = true
+    
+    -- Connect AncestryChanged to detect reparenting (e.g., to Breaking)
+    emitterConnections[emitter] = emitter.AncestryChanged:Connect(function()
+        requestScan()
+    end)
 end
 
 local function untrackEmitter(emitter)
+    if emitterConnections[emitter] then
+        emitterConnections[emitter]:Disconnect()
+        emitterConnections[emitter] = nil
+    end
     trackedEmitters[emitter] = nil
 end
 
@@ -291,7 +303,7 @@ local function doScan()
         for emitter in pairs(trackedEmitters) do
             if processed >= MAX_BLOCKS then break end
             if not emitter or not emitter.Parent then
-                trackedEmitters[emitter] = nil
+                untrackEmitter(emitter)  -- Updated to untrack properly
             else
                 if not isInsideBreaking(emitter) then
                     local part = getRealPartFromEmitter(emitter)
@@ -318,6 +330,9 @@ local function doScan()
                             end
                         end
                     end
+                else
+                    -- If now inside Breaking, untrack it
+                    untrackEmitter(emitter)
                 end
             end
             stepCount += 1
@@ -352,8 +367,14 @@ local function requestScan()
 end
 
 local function forceRestart()
-    -- Clear current ESP and trackers
+    -- Clear current ESP, trackers, and connections
     clearESP()
+    for emitter in pairs(emitterConnections) do
+        if emitterConnections[emitter] then
+            emitterConnections[emitter]:Disconnect()
+        end
+    end
+    table.clear(emitterConnections)
     table.clear(trackedEmitters)
     
     -- Repopulate trackers from current workspace
