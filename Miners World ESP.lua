@@ -1,12 +1,12 @@
--- Ore Scanner | Miners World - Rayfield Version (OTIMIZADO SEM LAG)
--- Corrigido: Teleporte apenas no eixo Y | Scan otimizado | Taxa atualizável
+-- Ore Scanner | Miners World - Rayfield Version (SCAN CORRIGIDO)
+-- Correções: Atualiza ESP quando minério muda, remove ESP não visto, busca partes mais robusta
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-    Name = "⛏️ Ore Scanner + Teleports | Miners World",
+    Name = "⛏️ Ore Scanner | Miners World",
     LoadingTitle = "Miners World ⛏️",
-    LoadingSubtitle = "by Jey - SEM LAG | Taxa ajustável",
+    LoadingSubtitle = "by Jey - Scan Corrigido",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "OreScanner",
@@ -42,11 +42,10 @@ end
 
 -- CONFIG
 local MAX_BLOCKS = 200
-local SCAN_INTERVAL = 3
+local SCAN_INTERVAL = 3 -- Segundos entre scans completos
 local YIELD_EVERY = 120
-local SCAN_ENABLED = false -- Só escaneia se tiver raridade ativa
 
--- Rarities
+-- Rarities (NO RARE, NO EMERALD)
 local rarities = {
     Uncommon = {Color = hexToColor3("#00ff00")},
     Epic = {Color = hexToColor3("#8a2be2")},
@@ -64,31 +63,61 @@ for name in pairs(rarities) do
     enabled[name] = false
 end
 
--- Match utilities (tolerância ajustada)
+-- Match utilities
 local function colorNear(a,b)
-    return math.abs(a.R - b.R) < 0.25 and 
-           math.abs(a.G - b.G) < 0.25 and 
-           math.abs(a.B - b.B) < 0.25
+    return math.abs(a.R - b.R) < 0.2 and math.abs(a.G - b.G) < 0.2 and math.abs(a.B - b.B) < 0.2
 end
 
 local function getEmitterColors(emitter)
     if not emitter or not emitter.Color then return nil end
     local colors = {}
+    -- Pega as cores dos keypoints
     for _,kp in ipairs(emitter.Color.Keypoints) do
         table.insert(colors, kp.Value)
     end
     return colors
 end
 
+-- CORREÇÃO: Função mais robusta para encontrar a parte real do emitter
 local function getRealPartFromEmitter(emitter)
     if not emitter then return nil end
-    local p = emitter.Parent
-    if p and p:IsA("Attachment") then
-        p = p.Parent
+    
+    local current = emitter
+    local maxIterations = 10 -- Evita loops infinitos
+    local iter = 0
+    
+    while current and current.Parent and iter < maxIterations do
+        current = current.Parent
+        iter = iter + 1
+        
+        if current:IsA("BasePart") then
+            return current
+        elseif current:IsA("Attachment") then
+            -- Continua subindo
+        elseif current:IsA("Model") then
+            -- Se for Model, pode ter uma PrimaryPart
+            if current.PrimaryPart then
+                return current.PrimaryPart
+            end
+        end
     end
-    if p and p:IsA("BasePart") and p ~= workspace then
-        return p
+    
+    -- Se não achou, tenta encontrar qualquer BasePart nos descendentes
+    if emitter:IsA("ParticleEmitter") then
+        local parent = emitter.Parent
+        if parent then
+            if parent:IsA("Attachment") and parent.Parent then
+                parent = parent.Parent
+            end
+            -- Procura por BasePart nos filhos
+            for _, child in ipairs(parent:GetChildren()) do
+                if child:IsA("BasePart") then
+                    return child
+                end
+            end
+        end
     end
+    
     return nil
 end
 
@@ -142,8 +171,6 @@ local function CreateCountsGui()
     gui.Name = "OreCounts"
     gui.ResetOnSpawn = false
     gui.Parent = playerGui
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.DisplayOrder = 100
 
     local frame = Instance.new("Frame")
     frame.Size = UDim2.fromScale(0.26, 0.32)
@@ -188,7 +215,7 @@ end
 
 local function DestroyCountsGui()
     if CountsGui then
-        pcall(function() CountsGui.Gui:Destroy() end)
+        CountsGui.Gui:Destroy()
         CountsGui = nil
     end
 end
@@ -207,28 +234,17 @@ local function updateCountsGUI(counts)
     CountsGui.Text.Text = table.concat(lines, "\n")
 end
 
--- ESP Management (otimizado)
-local espParts = {}
-local espCleanupConnections = {}
-
-local function cleanupESP(part)
-    if espCleanupConnections[part] then
-        espCleanupConnections[part]:Disconnect()
-        espCleanupConnections[part] = nil
-    end
-end
+-- ESP Management
+local espParts = {} -- Mapeia parte -> informações do ESP
 
 local function clearESP()
     for part, esp in pairs(espParts) do
-        pcall(function()
-            if esp.highlight and esp.highlight.Parent then
-                esp.highlight:Destroy()
-            end
-            if esp.billboard and esp.billboard.Parent then
-                esp.billboard:Destroy()
-            end
-        end)
-        cleanupESP(part)
+        if esp.highlight and esp.highlight.Parent then
+            esp.highlight:Destroy()
+        end
+        if esp.billboard and esp.billboard.Parent then
+            esp.billboard:Destroy()
+        end
     end
     table.clear(espParts)
 end
@@ -236,31 +252,21 @@ end
 local function removeESP(part)
     local esp = espParts[part]
     if esp then
-        pcall(function()
-            if esp.highlight and esp.highlight.Parent then
-                esp.highlight:Destroy()
-            end
-            if esp.billboard and esp.billboard.Parent then
-                esp.billboard:Destroy()
-            end
-        end)
-        cleanupESP(part)
+        if esp.highlight and esp.highlight.Parent then
+            esp.highlight:Destroy()
+        end
+        if esp.billboard and esp.billboard.Parent then
+            esp.billboard:Destroy()
+        end
         espParts[part] = nil
     end
 end
 
 local function createESP(part, rarityName, color)
-    if not part or not part.Parent then return end
-    
+    -- Remove ESP antigo se existir
     removeESP(part)
     
-    -- Monitora quando a parte for destruída ou entrar no Breaking
-    espCleanupConnections[part] = part.AncestryChanged:Connect(function()
-        if not part.Parent or isInsideBreaking(part) then
-            removeESP(part)
-        end
-    end)
-    
+    -- Cria novo ESP
     local highlight = Instance.new("Highlight")
     highlight.Adornee = part
     highlight.FillColor = color
@@ -288,6 +294,7 @@ local function createESP(part, rarityName, color)
     label.TextStrokeColor3 = Color3.new(0,0,0)
     label.Parent = billboard
     
+    -- Armazena referências
     espParts[part] = {
         highlight = highlight,
         billboard = billboard,
@@ -295,139 +302,10 @@ local function createESP(part, rarityName, color)
     }
 end
 
--- ========== SISTEMA DE TELEPORTE CORRIGIDO ==========
--- Coordenadas corretas: X=0, Z=0, Y variável
-
-local teleportLocations = {
-    -- Positivos
-    {Name = "🏠 Superfície", Y = 1},
-    {Name = "⬆️ Altitude 1", Y = 501},
-    {Name = "⬆️ Altitude 2", Y = 1001},
-    {Name = "⬆️ Altitude 3", Y = 1501},
-    {Name = "⬆️ Altitude 4", Y = 2001},
-    {Name = "⬆️ Altitude 5", Y = 2501},
-    {Name = "⬆️ Altitude 6", Y = 3001},
-    
-    -- Negativos
-    {Name = "⬇️ Profundidade 1", Y = -499},
-    {Name = "⬇️ Profundidade 2", Y = -999},
-    {Name = "⬇️ Profundidade 3", Y = -1499},
-    {Name = "⬇️ Profundidade 4", Y = -1999},
-    {Name = "⬇️ Profundidade 5", Y = -2499},
-    {Name = "⬇️ Profundidade 6", Y = -2999},
-    {Name = "⬇️ Profundidade 7", Y = -3499},
-    {Name = "⬇️ Profundidade 8", Y = -3999},
-    {Name = "⬇️ Profundidade 9", Y = -4499},
-    {Name = "⬇️ Profundidade 10", Y = -4999},
-    {Name = "⬇️ Profundidade 11", Y = -5499},
-    {Name = "⬇️ Profundidade 12", Y = -5999},
-    {Name = "⬇️ Profundidade 13", Y = -6499},
-    {Name = "⬇️ Profundidade 14", Y = -6999},
-    {Name = "⬇️ Profundidade 15", Y = -7499},
-    {Name = "⬇️ Profundidade 16", Y = -7999},
-}
-
--- Função de teleporte OTIMIZADA (sem lag)
-local function teleportToY(targetY)
-    -- Garante que targetY é número
-    targetY = tonumber(targetY)
-    if not targetY then return end
-    
-    local character = player.Character
-    if not character then
-        -- Tenta aguardar o personagem
-        character = player.CharacterAdded:Wait(2)
-        if not character then
-            Rayfield:Notify({
-                Title = "Erro",
-                Content = "Personagem não encontrado!",
-                Duration = 3,
-            })
-            return
-        end
-    end
-    
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then
-        Rayfield:Notify({
-            Title = "Erro",
-            Content = "HumanoidRootPart não encontrado!",
-            Duration = 3,
-        })
-        return
-    end
-    
-    -- CORREÇÃO: Garante que X e Z são 0
-    local newPos = Vector3.new(0, targetY, 0)
-    
-    -- Teleporta suavemente
-    humanoidRootPart.CFrame = CFrame.new(newPos)
-    
-    -- Notificação
-    Rayfield:Notify({
-        Title = "Teleportado!",
-        Content = string.format("Y: %.0f", targetY),
-        Duration = 2,
-    })
-end
-
--- Funções de navegação
-local function teleportToSurface()
-    teleportToY(1)
-end
-
-local function goUp()
-    local character = player.Character
-    if not character then return end
-    
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    local currentY = hrp.Position.Y
-    local targetY
-    
-    -- Encontra o próximo Y válido acima
-    if currentY < 1 then
-        targetY = 1
-    elseif currentY >= 3001 then
-        targetY = 3001
-    else
-        -- Para positivos: 1, 501, 1001...
-        targetY = math.floor((currentY + 500) / 500) * 500 + 1
-        if targetY > 3001 then targetY = 3001 end
-    end
-    
-    teleportToY(targetY)
-end
-
-local function goDown()
-    local character = player.Character
-    if not character then return end
-    
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    local currentY = hrp.Position.Y
-    local targetY
-    
-    -- Encontra o próximo Y válido abaixo
-    if currentY > -499 then
-        targetY = -499
-    elseif currentY <= -7999 then
-        targetY = -7999
-    else
-        -- Para negativos: -499, -999, -1499...
-        targetY = math.floor((currentY - 500) / 500) * 500 - 499
-        if targetY < -7999 then targetY = -7999 end
-    end
-    
-    teleportToY(targetY)
-end
-
--- ========== SCAN FUNCTIONS OTIMIZADAS ==========
+-- Scan Functions
 local scanning = false
+local lastScanTime = 0
 local scanRequested = false
-lastScanTime = 0
 
 local function zeroCounts()
     local counts = {}
@@ -435,28 +313,15 @@ local function zeroCounts()
     return counts
 end
 
-local function shouldScan()
-    if not SCAN_ENABLED then return false end
-    for _, v in pairs(enabled) do
-        if v then return true end
-    end
-    return false
-end
-
+-- CORREÇÃO: Função principal de scan com as melhorias
 local function performFullScan()
-    if scanning or not shouldScan() then return end
+    if scanning then return end
     scanning = true
     
-    -- Limita a frequência do scan
-    if tick() - lastScanTime < 1 then
-        scanning = false
-        return
-    end
-    
     local success, err = pcall(function()
-        -- Remove ESP de partes inválidas
+        -- Remove ESP de partes que não existem mais ou estão no Breaking
         for part in pairs(espParts) do
-            if not part or not part.Parent or isInsideBreaking(part) then
+            if (not part) or (not part.Parent) or isInsideBreaking(part) then
                 removeESP(part)
             end
         end
@@ -464,60 +329,71 @@ local function performFullScan()
         local counts = zeroCounts()
         local processed = 0
         local stepCount = 0
+        local seen = {} -- Parts detectadas neste scan
         
-        -- Scan mais eficiente: procura apenas por Parts com ParticleEmitters
-        for _, part in ipairs(workspace:GetDescendants()) do
+        -- Procura por ParticleEmitters no workspace INTEIRO
+        for _, emitter in ipairs(workspace:GetDescendants()) do
             if processed >= MAX_BLOCKS then break end
             
-            if part:IsA("BasePart") and part.Parent and not isInsideBreaking(part) then
-                -- Verifica se a part tem ParticleEmitter
-                local hasEmitter = false
-                for _, child in ipairs(part:GetChildren()) do
-                    if child:IsA("ParticleEmitter") and not isInsideBreaking(child) then
-                        hasEmitter = true
-                        break
-                    end
-                end
-                
-                if hasEmitter and not espParts[part] then
-                    -- Procura o emitter para identificar a raridade
-                    for _, child in ipairs(part:GetChildren()) do
-                        if child:IsA("ParticleEmitter") then
-                            local colors = getEmitterColors(child)
-                            if colors and #colors > 0 then
-                                local found = nil
-                                
-                                for rarityName, data in pairs(rarities) do
-                                    if enabled[rarityName] then
-                                        for _, color in ipairs(colors) do
-                                            if colorNear(color, data.Color) then
-                                                found = rarityName
-                                                break
-                                            end
+            -- Verifica se é um ParticleEmitter válido
+            if emitter:IsA("ParticleEmitter") and emitter.Parent then
+                -- Ignora se estiver na pasta Breaking
+                if not isInsideBreaking(emitter) then
+                    local part = getRealPartFromEmitter(emitter)
+                    
+                    -- Verifica se a parte é válida e não está no Breaking
+                    if part and part.Parent and not isInsideBreaking(part) then
+                        -- Pega as cores do emitter
+                        local colors = getEmitterColors(emitter)
+                        if colors and #colors > 0 then
+                            local found = nil
+                            
+                            -- Verifica cada raridade habilitada
+                            for rarityName, data in pairs(rarities) do
+                                if enabled[rarityName] then
+                                    for _, color in ipairs(colors) do
+                                        if colorNear(color, data.Color) then
+                                            found = rarityName
+                                            break
                                         end
                                     end
-                                    if found then break end
+                                end
+                                if found then break end
+                            end
+                            
+                            -- Se encontrou uma raridade
+                            if found then
+                                seen[part] = found
+                                
+                                -- CORREÇÃO: Atualiza se não tem ESP ou se a raridade mudou
+                                if (not espParts[part]) or (espParts[part].rarity ~= found) then
+                                    createESP(part, found, rarities[found].Color)
                                 end
                                 
-                                if found then
-                                    counts[found] = counts[found] + 1
-                                    processed = processed + 1
-                                    createESP(part, found, rarities[found].Color)
-                                    break
-                                end
+                                -- Incrementa contador
+                                counts[found] = counts[found] + 1
+                                processed = processed + 1
                             end
                         end
                     end
                 end
-            end
-            
-            stepCount = stepCount + 1
-            if stepCount >= YIELD_EVERY then
-                stepCount = 0
-                RunService.Heartbeat:Wait()
+                
+                stepCount = stepCount + 1
+                if stepCount >= YIELD_EVERY then
+                    stepCount = 0
+                    RunService.Heartbeat:Wait()
+                end
             end
         end
         
+        -- CORREÇÃO: Remove ESP que não foi visto neste scan (sumiu ou mudou)
+        for part in pairs(espParts) do
+            if not seen[part] then
+                removeESP(part)
+            end
+        end
+        
+        -- Atualiza GUI de contagens
         if CountsGui then
             updateCountsGUI(counts)
         end
@@ -533,100 +409,90 @@ local function performFullScan()
     end
 end
 
+-- Função para agendar scan (com debounce)
 local function scheduleScan()
-    if not SCAN_ENABLED or not shouldScan() then return end
     if not scanRequested then
         scanRequested = true
-        task.wait(0.5)
-        if scanRequested and shouldScan() then
+        task.wait(0.5) -- Pequeno delay para coalescer eventos
+        if scanRequested then -- Verifica se ainda é necessário
             performFullScan()
         end
     end
 end
 
--- Loop periódico de scan (agora com pausa quando desativado)
+-- Loop periódico de scan
 coroutine.wrap(function()
     while true do
         task.wait(SCAN_INTERVAL)
-        if shouldScan() then
+        -- Só faz scan se houver raridades habilitadas
+        local anyEnabled = false
+        for _, v in pairs(enabled) do
+            if v then 
+                anyEnabled = true 
+                break 
+            end
+        end
+        if anyEnabled then
             performFullScan()
         end
     end
 end)()
 
--- Event Listeners (otimizados)
+-- Event Listeners
 workspace.DescendantAdded:Connect(function(descendant)
-    if SCAN_ENABLED and (descendant:IsA("ParticleEmitter") or descendant:IsA("BasePart")) then
+    if descendant:IsA("ParticleEmitter") or descendant:IsA("BasePart") then
         scheduleScan()
     end
 end)
 
 workspace.DescendantRemoving:Connect(function(descendant)
-    if SCAN_ENABLED and (descendant:IsA("ParticleEmitter") or descendant:IsA("BasePart")) then
+    if descendant:IsA("ParticleEmitter") or descendant:IsA("BasePart") then
         scheduleScan()
     end
 end)
 
 -- Monitora pasta Breaking
 if breakingFolder then
-    breakingFolder.ChildAdded:Connect(function()
-        if SCAN_ENABLED then scheduleScan() end
-    end)
-    breakingFolder.ChildRemoved:Connect(function()
-        if SCAN_ENABLED then scheduleScan() end
-    end)
+    breakingFolder.ChildAdded:Connect(scheduleScan)
+    breakingFolder.ChildRemoved:Connect(scheduleScan)
 end
 
 workspace.ChildAdded:Connect(function(child)
     if child.Name == "Breaking" then
         breakingFolder = child
-        breakingFolder.ChildAdded:Connect(function()
-            if SCAN_ENABLED then scheduleScan() end
-        end)
-        breakingFolder.ChildRemoved:Connect(function()
-            if SCAN_ENABLED then scheduleScan() end
-        end)
+        breakingFolder.ChildAdded:Connect(scheduleScan)
+        breakingFolder.ChildRemoved:Connect(scheduleScan)
     end
 end)
 
--- ========== UI RAYFIELD ==========
+-- Monitora mudanças de propriedade nos emitters (cores podem mudar?)
+game:GetService("CollectionService"):GetInstanceAddedSignal("ParticleEmitter"):Connect(scheduleScan)
+
+-- Force Restart
+local function forceRestart()
+    clearESP()
+    performFullScan()
+end
+
+-- UI Rayfield
 local ScannerTab = Window:CreateTab("Scanner")
-local TeleportTab = Window:CreateTab("Teleports")
 
--- ABA SCANNER
-ScannerTab:CreateSection("⚙️ Configurações do Scanner")
-
-ScannerTab:CreateToggle({
-    Name = "🔴 Ativar Scanner",
-    CurrentValue = false,
-    Flag = "EnableScanner",
-    Callback = function(v)
-        SCAN_ENABLED = v
-        if v and shouldScan() then
-            performFullScan()
-        elseif not v then
-            clearESP()
-            if CountsGui then
-                updateCountsGUI(zeroCounts())
-            end
-        end
-    end,
-})
+ScannerTab:CreateSection("Scanner Settings")
 
 ScannerTab:CreateSlider({
-    Name = "📊 Max Blocos",
+    Name = "Max Blocks",
     Range = {1, 5000},
     Increment = 1,
     CurrentValue = MAX_BLOCKS,
     Flag = "MaxBlocksSlider",
     Callback = function(v)
         MAX_BLOCKS = v
-        if SCAN_ENABLED then scheduleScan() end
+        scheduleScan()
     end,
 })
 
 ScannerTab:CreateSlider({
-    Name = "⏱️ Taxa de Atualização (segundos)",
+    Name = "Scan Interval (seconds)",
     Range = {1, 10},
     Increment = 0.5,
     CurrentValue = SCAN_INTERVAL,
@@ -636,7 +502,7 @@ ScannerTab:CreateSlider({
     end,
 })
 
-ScannerTab:CreateSection("💎 Raridades")
+ScannerTab:CreateSection("Rarities")
 
 for _, name in ipairs({"Uncommon", "Epic", "Legendary", "Mythic", "Ethereal", "Celestial", "Zenith", "Divine", "Nil"}) do
     ScannerTab:CreateToggle({
@@ -645,14 +511,21 @@ for _, name in ipairs({"Uncommon", "Epic", "Legendary", "Mythic", "Ethereal", "C
         Flag = name .. "Toggle",
         Callback = function(v)
             enabled[name] = v
-            if SCAN_ENABLED then
-                if shouldScan() then
-                    scheduleScan()
-                else
-                    clearESP()
-                    if CountsGui then
-                        updateCountsGUI(zeroCounts())
-                    end
+            -- Verifica se alguma raridade está habilitada
+            local anyEnabled = false
+            for _, enabledState in pairs(enabled) do
+                if enabledState then 
+                    anyEnabled = true 
+                    break 
+                end
+            end
+            
+            if anyEnabled then
+                scheduleScan()
+            else
+                clearESP()
+                if CountsGui then
+                    updateCountsGUI(zeroCounts())
                 end
             end
         end,
@@ -660,13 +533,13 @@ for _, name in ipairs({"Uncommon", "Epic", "Legendary", "Mythic", "Ethereal", "C
 end
 
 ScannerTab:CreateToggle({
-    Name = "📋 Mostrar Janela de Contagens",
+    Name = "Show Counts Window",
     CurrentValue = false,
     Flag = "ShowCountsToggle",
     Callback = function(v)
         if v then
             CreateCountsGui()
-            if SCAN_ENABLED then scheduleScan() end
+            scheduleScan()
         else
             DestroyCountsGui()
         end
@@ -674,93 +547,190 @@ ScannerTab:CreateToggle({
 })
 
 ScannerTab:CreateButton({
-    Name = "🔄 Forçar Scan Agora",
+    Name = "Force Scan Now",
     Callback = function()
-        if SCAN_ENABLED then
-            clearESP()
-            performFullScan()
-            Rayfield:Notify({
-                Title = "Scan Forçado",
-                Content = "Scan completo realizado.",
-                Duration = 2,
-            })
-        else
-            Rayfield:Notify({
-                Title = "Scanner Desativado",
-                Content = "Ative o scanner primeiro!",
-                Duration = 2,
-            })
-        end
+        forceRestart()
+        Rayfield:Notify({
+            Title = "Scan Forçado",
+            Content = "Scan completo realizado.",
+            Duration = 2,
+        })
     end,
 })
 
--- ABA TELEPORTES
-TeleportTab:CreateSection("📍 Navegação Rápida")
+--------------------------------------------------
+-- TELEPORT TAB (TESTE LOCAL)
+-- X=0, Z=0, Y = lobby selecionado
+--------------------------------------------------
 
-TeleportTab:CreateButton({
-    Name = "🏠 Superfície (Y=1)",
-    Callback = teleportToSurface,
-})
+local TeleportTab = Window:CreateTab("Teleport")
 
-TeleportTab:CreateButton({
-    Name = "⬆️ Subir 500 blocos",
-    Callback = goUp,
-})
+TeleportTab:CreateSection("Lobby Teleport (Teste)")
 
-TeleportTab:CreateButton({
-    Name = "⬇️ Descer 500 blocos",
-    Callback = goDown,
-})
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
 
-TeleportTab:CreateSection("☀️ Acima da Superfície")
+-- Gera Ys: 1, 501..3001 (passo 500), -499..-7999 (passo -500)
+local function buildLobbyYs()
+    local ys = {1}
 
-for i = 1, 7 do
-    local loc = teleportLocations[i]
-    TeleportTab:CreateButton({
-        Name = loc.Name .. " (Y: " .. loc.Y .. ")",
-        Callback = function()
-            teleportToY(loc.Y)
-        end,
-    })
+    for y = 501, 3001, 500 do
+        table.insert(ys, y)
+    end
+
+    for y = -499, -7999, -500 do
+        table.insert(ys, y)
+    end
+
+    return ys
 end
 
-TeleportTab:CreateSection("🌑 Profundidades")
+local LobbyYs = buildLobbyYs()
+local selectedIndex = 1
 
-for i = 8, #teleportLocations do
-    local loc = teleportLocations[i]
-    TeleportTab:CreateButton({
-        Name = loc.Name .. " (Y: " .. loc.Y .. ")",
-        Callback = function()
-            teleportToY(loc.Y)
-        end,
-    })
+local function getSelectedY()
+    return LobbyYs[selectedIndex] or 1
 end
 
-TeleportTab:CreateSection("⚙️ Teleporte Personalizado")
+-- Validação do Y conforme sua regra
+local function isValidLobbyY(y)
+    y = math.floor(y)
+    if y == 1 then return true end
+
+    if y >= 501 and y <= 3001 then
+        return ((y - 1) % 500) == 0
+    end
+
+    if y <= -499 and y >= -7999 then
+        return ((y - 1) % 500) == 0
+    end
+
+    return false
+end
+
+local function teleportToY(y)
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    -- Teleporte local (teste)
+    hrp.CFrame = CFrame.new(0, y + 5, 0)
+end
+
+-- Dropdown options como texto
+local dropdownOptions = {}
+for _, y in ipairs(LobbyYs) do
+    table.insert(dropdownOptions, tostring(y))
+end
+
+TeleportTab:CreateDropdown({
+    Name = "Escolher Lobby (Y)",
+    Options = dropdownOptions,
+    CurrentOption = { tostring(getSelectedY()) },
+    Flag = "LobbyDropdown",
+    Callback = function(option)
+        local v = option
+        if typeof(option) == "table" then v = option[1] end
+        local y = tonumber(v)
+
+        if y then
+            -- acha índice correspondente
+            for i, yy in ipairs(LobbyYs) do
+                if yy == y then
+                    selectedIndex = i
+                    break
+                end
+            end
+        end
+    end
+})
+
+TeleportTab:CreateButton({
+    Name = "Prev Lobby",
+    Callback = function()
+        selectedIndex -= 1
+        if selectedIndex < 1 then selectedIndex = #LobbyYs end
+        Rayfield:Notify({
+            Title = "Lobby",
+            Content = ("Selecionado Y=%d"):format(getSelectedY()),
+            Duration = 1.5,
+        })
+    end
+})
+
+TeleportTab:CreateButton({
+    Name = "Next Lobby",
+    Callback = function()
+        selectedIndex += 1
+        if selectedIndex > #LobbyYs then selectedIndex = 1 end
+        Rayfield:Notify({
+            Title = "Lobby",
+            Content = ("Selecionado Y=%d"):format(getSelectedY()),
+            Duration = 1.5,
+        })
+    end
+})
 
 TeleportTab:CreateInput({
-    Name = "Digite a coordenada Y",
-    PlaceholderText = "Ex: 1501 ou -2499",
-    RemoveTextAfterFocusLost = true,
+    Name = "Y manual (opcional)",
+    PlaceholderText = "Ex: 1, 501, 1001, -499, -999...",
+    RemoveTextAfterFocusLost = false,
     Callback = function(text)
         local y = tonumber(text)
-        if y then
-            teleportToY(y)
-        else
+        if not y then
             Rayfield:Notify({
-                Title = "Erro",
-                Content = "Valor inválido!",
+                Title = "Teleport",
+                Content = "Digite um número válido.",
                 Duration = 2,
             })
+            return
         end
-    end,
+
+        y = math.floor(y)
+        if not isValidLobbyY(y) then
+            Rayfield:Notify({
+                Title = "Teleport",
+                Content = "Y inválido. Regra: 1, (1+500n) até 3001 e até -7999.",
+                Duration = 3,
+            })
+            return
+        end
+
+        -- seta selectedIndex para esse Y
+        for i, yy in ipairs(LobbyYs) do
+            if yy == y then
+                selectedIndex = i
+                break
+            end
+        end
+
+        Rayfield:Notify({
+            Title = "Lobby",
+            Content = ("Selecionado Y=%d"):format(y),
+            Duration = 1.5,
+        })
+    end
 })
+
+TeleportTab:CreateButton({
+    Name = "Teleportar para Lobby selecionado",
+    Callback = function()
+        local y = getSelectedY()
+        teleportToY(y)
+        Rayfield:Notify({
+            Title = "Teleport",
+            Content = ("Teleportado para (0, %d, 0)"):format(y),
+            Duration = 2,
+        })
+    end
+})
+
+
 
 -- Load configuration
 Rayfield:LoadConfiguration()
 
--- Scan inicial (apenas se ativado)
-task.wait(2)
-if SCAN_ENABLED and shouldScan() then
-    performFullScan()
-end
+-- Scan inicial
+task.wait(1)
+performFullScan()
