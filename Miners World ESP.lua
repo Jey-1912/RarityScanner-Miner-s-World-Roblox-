@@ -1,6 +1,6 @@
--- Ore Counter (Rayfield) | SEM ESP | SEM RARE
+-- Ore Counter + ESP | Rayfield Version | SEM RARE
 -- Detecta raridades por ParticleEmitter.Color (keypoints)
--- Mostra apenas texto + janela de contagem arrastável e minimizável
+-- Mostra texto + contagem + ESP nos blocos encontrados
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
@@ -83,16 +83,89 @@ for name in pairs(rarities) do
 	enabled[name] = false
 end
 
+-- Ordem para exibição
+local rarityOrder = {"Uncommon","Epic","Legendary","Mythic","Ethereal","Celestial","Zenith","Divine","Nil"}
+
+--------------------------------------------------
+-- ESP Management
+--------------------------------------------------
+local espParts = {} -- Mapeia parte -> informações do ESP
+
+local function clearESP()
+	for part, esp in pairs(espParts) do
+		if esp.highlight and esp.highlight.Parent then
+			esp.highlight:Destroy()
+		end
+		if esp.billboard and esp.billboard.Parent then
+			esp.billboard:Destroy()
+		end
+	end
+	table.clear(espParts)
+end
+
+local function removeESP(part)
+	local esp = espParts[part]
+	if esp then
+		if esp.highlight and esp.highlight.Parent then
+			esp.highlight:Destroy()
+		end
+		if esp.billboard and esp.billboard.Parent then
+			esp.billboard:Destroy()
+		end
+		espParts[part] = nil
+	end
+end
+
+local function createESP(part, rarityName, color)
+	-- Remove ESP antigo se existir
+	removeESP(part)
+	
+	-- Cria novo ESP
+	local highlight = Instance.new("Highlight")
+	highlight.Adornee = part
+	highlight.FillColor = color
+	highlight.FillTransparency = 0.65
+	highlight.OutlineColor = Color3.new(1,1,1)
+	highlight.OutlineTransparency = 0
+	highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+	highlight.Parent = part
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.fromOffset(150, 36)
+	billboard.StudsOffset = Vector3.new(0, part.Size.Y + 0.6, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = part
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1,1)
+	label.BackgroundTransparency = 1
+	label.Text = rarityName
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = false
+	label.TextSize = 18
+	label.TextColor3 = color
+	label.TextStrokeTransparency = 0
+	label.TextStrokeColor3 = Color3.new(0,0,0)
+	label.Parent = billboard
+	
+	-- Armazena referências
+	espParts[part] = {
+		highlight = highlight,
+		billboard = billboard,
+		rarity = rarityName
+	}
+end
+
 --------------------------------------------------
 -- Rayfield Window
 --------------------------------------------------
 local Window = Rayfield:CreateWindow({
-	Name = "⛏️ Ore Counter | Miners World",
+	Name = "⛏️ Ore Counter + ESP | Miners World",
 	LoadingTitle = "Miners World ⛏️",
-	LoadingSubtitle = "Counts only (no ESP)",
+	LoadingSubtitle = "Counts + ESP",
 	ConfigurationSaving = {
 		Enabled = true,
-		FolderName = "OreCounter",
+		FolderName = "OreCounterESP",
 		FileName = "settings"
 	},
 	KeySystem = false,
@@ -100,6 +173,7 @@ local Window = Rayfield:CreateWindow({
 
 local ScannerTab = Window:CreateTab("Scanner")
 local CountsTab  = Window:CreateTab("Counts")
+local ESPTab     = Window:CreateTab("ESP")
 
 ScannerTab:CreateSection("Scanner Settings")
 
@@ -117,11 +191,11 @@ ScannerTab:CreateSlider({
 
 ScannerTab:CreateParagraph({
 	Title = "Info",
-	Content = "Marque as raridades para contar. Isso NÃO cria ESP, só texto/contagem."
+	Content = "Marque as raridades para contar. ESP será criado automaticamente."
 })
 
 ScannerTab:CreateSection("Rarities (sem Rare)")
-local rarityOrder = {"Uncommon","Epic","Legendary","Mythic","Ethereal","Celestial","Zenith","Divine","Nil"}
+
 for _, name in ipairs(rarityOrder) do
 	ScannerTab:CreateToggle({
 		Name = name,
@@ -271,7 +345,38 @@ CountsTab:CreateToggle({
 	end,
 })
 
-CountsTab:CreateButton({
+--------------------------------------------------
+-- ESP Tab
+--------------------------------------------------
+ESPTab:CreateSection("ESP Settings")
+
+ESPTab:CreateToggle({
+	Name = "Enable ESP",
+	CurrentValue = true,
+	Flag = "EnableESP",
+	Callback = function(v)
+		if not v then
+			clearESP()
+		else
+			requestScan()
+		end
+	end,
+})
+
+ESPTab:CreateParagraph({
+	Title = "Info",
+	Content = "ESP mostra highlight + nome nos blocos encontrados."
+})
+
+ESPTab:CreateButton({
+	Name = "Clear All ESP",
+	Callback = function()
+		clearESP()
+		Rayfield:Notify({Title="ESP", Content="Todos os ESPs foram removidos.", Duration=2})
+	end
+})
+
+ESPTab:CreateButton({
 	Name = "Force Scan Now",
 	Callback = function()
 		requestScan()
@@ -304,7 +409,7 @@ for _,obj in ipairs(workspace:GetDescendants()) do
 end
 
 --------------------------------------------------
--- Scan coalescido (somente contagem / texto)
+-- Scan coalescido (contagem + ESP)
 --------------------------------------------------
 local scanPending = false
 local scanning = false
@@ -315,6 +420,8 @@ function doScan()
 	scanning = true
 	scanPending = false
 
+	local espEnabled = Rayfield.Flags["EnableESP"] -- Pega o valor do toggle
+
 	local counts = {}
 	for name in pairs(rarities) do counts[name] = 0 end
 
@@ -322,6 +429,12 @@ function doScan()
 	local processed = 0
 	local stepCount = 0
 	local totalFound = 0
+	local seen = {} -- Parts detectadas neste scan (para limpeza)
+
+	-- Se ESP estiver desabilitado, limpa tudo antes
+	if not espEnabled then
+		clearESP()
+	end
 
 	for emitter in pairs(trackedEmitters) do
 		if processed >= MAX_BLOCKS then break end
@@ -349,9 +462,18 @@ function doScan()
 
 						if found then
 							markedParts[part] = true
+							seen[part] = found
 							counts[found] += 1
 							totalFound += 1
 							processed += 1
+							
+							-- Cria ESP se estiver habilitado
+							if espEnabled then
+								-- Atualiza se não tem ESP ou se a raridade mudou
+								if (not espParts[part]) or (espParts[part].rarity ~= found) then
+									createESP(part, found, rarities[found].Color)
+								end
+							end
 						end
 					end
 				end
@@ -362,6 +484,15 @@ function doScan()
 		if stepCount >= YIELD_EVERY then
 			stepCount = 0
 			RunService.Heartbeat:Wait()
+		end
+	end
+
+	-- Se ESP estiver habilitado, remove ESP de partes que não foram vistas neste scan
+	if espEnabled then
+		for part in pairs(espParts) do
+			if not seen[part] then
+				removeESP(part)
+			end
 		end
 	end
 
@@ -404,6 +535,21 @@ workspace.DescendantRemoving:Connect(function(obj)
 	end
 end)
 
--- scan inicial (vai mostrar 0 até marcar toggles)
+-- Monitora pasta Breaking
+if breakingFolder then
+	breakingFolder.ChildAdded:Connect(requestScan)
+	breakingFolder.ChildRemoved:Connect(requestScan)
+end
+
+workspace.ChildAdded:Connect(function(child)
+	if child.Name == "Breaking" then
+		breakingFolder = child
+		breakingFolder.ChildAdded:Connect(requestScan)
+		breakingFolder.ChildRemoved:Connect(requestScan)
+	end
+end)
+
+-- scan inicial
 Rayfield:LoadConfiguration()
+task.wait(1)
 requestScan()
