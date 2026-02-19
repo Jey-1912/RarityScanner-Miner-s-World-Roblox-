@@ -1,16 +1,14 @@
--- Ore Scanner | Miners World - Rayfield Version (Optimized, No Lag)
--- Adapted from provided script: Uses emitter tracking for efficiency
--- AUTO via coalesced events | NO RARE | NO EMERALD | Ignores workspace.Breaking
--- Counts GUI | Minimizable | Max Blocks Slider
--- Added: Force Restart button to reset and fully restart scanner
--- Fixed: Autoscan now detects reparenting (e.g., to Breaking folder) via AncestryChanged
+-- Ore Scanner | Miners World - Rayfield Version (FIXED Auto Scan)
+-- CORREÇÃO: Agora monitora corretamente quando minérios entram/saem da pasta Breaking
+-- AUTO via eventos coalescidos | NO RARE | NO EMERALD | Ignora workspace.Breaking
+-- Counts GUI | Minimizable | Max Blocks Slider | Force Restart
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
     Name = "⛏️ Ore Scanner | Miners World",
     LoadingTitle = "Miners World ⛏️",
-    LoadingSubtitle = "by Jey - Optimized",
+    LoadingSubtitle = "by Jey - Auto Scan FIXED",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "OreScanner",
@@ -249,15 +247,27 @@ end
 
 -- Emitter tracking (for efficiency)
 local trackedEmitters = {}
-local emitterConnections = {}  -- To store AncestryChanged connections
+local emitterConnections = {}  -- Store AncestryChanged connections
 
+-- CORREÇÃO: Função aprimorada para detectar mudanças de parentesco
 local function trackEmitter(emitter)
     if trackedEmitters[emitter] then return end
     if isInsideBreaking(emitter) then return end
+    
     trackedEmitters[emitter] = true
     
-    -- Connect AncestryChanged to detect reparenting (e.g., to Breaking)
-    emitterConnections[emitter] = emitter.AncestryChanged:Connect(function()
+    -- Remove conexão anterior se existir
+    if emitterConnections[emitter] then
+        emitterConnections[emitter]:Disconnect()
+    end
+    
+    -- Conecta AncestryChanged para detectar quando entra/sai da pasta Breaking
+    emitterConnections[emitter] = emitter.AncestryChanged:Connect(function(child, parent)
+        -- Se o emitter foi movido para dentro de Breaking, remove do tracking
+        if isInsideBreaking(emitter) then
+            untrackEmitter(emitter)
+        end
+        -- Sempre pede scan quando há mudança de parentesco
         requestScan()
     end)
 end
@@ -300,47 +310,52 @@ local function doScan()
         local processed = 0
         local stepCount = 0
 
+        -- Primeiro, limpa emitters que não existem mais
+        for emitter in pairs(trackedEmitters) do
+            if not emitter or not emitter.Parent then
+                untrackEmitter(emitter)
+            end
+        end
+
+        -- Agora escaneia os emitters válidos
         for emitter in pairs(trackedEmitters) do
             if processed >= MAX_BLOCKS then break end
-            if not emitter or not emitter.Parent then
-                untrackEmitter(emitter)  -- Updated to untrack properly
-            else
-                if not isInsideBreaking(emitter) then
-                    local part = getRealPartFromEmitter(emitter)
-                    if part and part.Parent and not isInsideBreaking(part) and not markedParts[part] then
-                        local colors = getEmitterColors(emitter)
-                        if colors then
-                            local found = nil
-                            for rarityName, data in pairs(rarities) do
-                                if enabled[rarityName] then
-                                    for _,c in ipairs(colors) do
-                                        if colorNear(c, data.Color) then
-                                            found = rarityName
-                                            break
-                                        end
+            
+            -- Verifica se ainda é válido e não está no Breaking
+            if emitter and emitter.Parent and not isInsideBreaking(emitter) then
+                local part = getRealPartFromEmitter(emitter)
+                if part and part.Parent and not isInsideBreaking(part) and not markedParts[part] then
+                    local colors = getEmitterColors(emitter)
+                    if colors then
+                        local found = nil
+                        for rarityName, data in pairs(rarities) do
+                            if enabled[rarityName] then
+                                for _,c in ipairs(colors) do
+                                    if colorNear(c, data.Color) then
+                                        found = rarityName
+                                        break
                                     end
                                 end
-                                if found then break end
                             end
-                            if found then
-                                markedParts[part] = true
-                                counts[found] += 1
-                                processed += 1
-                                createESP(part, found, rarities[found].Color)
-                            end
+                            if found then break end
+                        end
+                        if found then
+                            markedParts[part] = true
+                            counts[found] = counts[found] + 1
+                            processed = processed + 1
+                            createESP(part, found, rarities[found].Color)
                         end
                     end
-                else
-                    -- If now inside Breaking, untrack it
-                    untrackEmitter(emitter)
                 end
             end
-            stepCount += 1
+            
+            stepCount = stepCount + 1
             if stepCount >= YIELD_EVERY then
                 stepCount = 0
                 RunService.Heartbeat:Wait()
             end
         end
+        
         if CountsGui then
             updateCountsGUI(counts)
         end
@@ -369,9 +384,9 @@ end
 local function forceRestart()
     -- Clear current ESP, trackers, and connections
     clearESP()
-    for emitter in pairs(emitterConnections) do
-        if emitterConnections[emitter] then
-            emitterConnections[emitter]:Disconnect()
+    for emitter, conn in pairs(emitterConnections) do
+        if conn then
+            conn:Disconnect()
         end
     end
     table.clear(emitterConnections)
@@ -447,7 +462,7 @@ ScannerTab:CreateToggle({
     end,
 })
 
--- New: Force Restart button
+-- Force Restart button
 ScannerTab:CreateButton({
     Name = "Force Restart Scanner",
     Callback = function()
@@ -474,6 +489,31 @@ end)
 workspace.DescendantRemoving:Connect(function(obj)
     if obj:IsA("ParticleEmitter") then
         untrackEmitter(obj)
+        requestScan()
+    end
+end)
+
+-- CORREÇÃO: Monitora mudanças na pasta Breaking
+if breakingFolder then
+    breakingFolder.ChildAdded:Connect(function()
+        requestScan()
+    end)
+    breakingFolder.ChildRemoved:Connect(function()
+        requestScan()
+    end)
+end
+
+-- Monitora quando a pasta Breaking é criada (se não existir inicialmente)
+workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Breaking" and not breakingFolder then
+        breakingFolder = child
+        -- Adiciona eventos na nova pasta
+        breakingFolder.ChildAdded:Connect(function()
+            requestScan()
+        end)
+        breakingFolder.ChildRemoved:Connect(function()
+            requestScan()
+        end)
         requestScan()
     end
 end)
