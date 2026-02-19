@@ -1,13 +1,12 @@
--- Ore Scanner | Miners World - Rayfield Version (AUTO SCAN 100% FIXED)
--- CORREÇÃO: Agora monitora Criação de NOVOS minérios e movimento para Breaking
--- Usa ChildAdded nos PARTS para detectar quando emitters são adicionados
+-- Ore Scanner | Miners World - Rayfield Version (TELEPORTES CORRIGIDOS)
+-- Teleportes de 500 em 500 blocos: Positivos: 1, 501, 1001... | Negativos: -499, -999, -1499...
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-    Name = "⛏️ Ore Scanner | Miners World",
+    Name = "⛏️ Ore Scanner + Teleports | Miners World",
     LoadingTitle = "Miners World ⛏️",
-    LoadingSubtitle = "by Jey - Auto Scan FIXED",
+    LoadingSubtitle = "by Jey - Teleports 500 em 500",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "OreScanner",
@@ -43,10 +42,10 @@ end
 
 -- CONFIG
 local MAX_BLOCKS = 200
-local RESCAN_DEBOUNCE = 0.35
+local SCAN_INTERVAL = 3
 local YIELD_EVERY = 120
 
--- Rarities (NO RARE, NO EMERALD)
+-- Rarities
 local rarities = {
     Uncommon = {Color = hexToColor3("#00ff00")},
     Epic = {Color = hexToColor3("#8a2be2")},
@@ -66,11 +65,11 @@ end
 
 -- Match utilities
 local function colorNear(a,b)
-    return math.abs(a.R - b.R) < 0.18 and math.abs(a.G - b.G) < 0.18 and math.abs(a.B - b.B) < 0.18
+    return math.abs(a.R - b.R) < 0.2 and math.abs(a.G - b.G) < 0.2 and math.abs(a.B - b.B) < 0.2
 end
 
 local function getEmitterColors(emitter)
-    if not emitter.Color then return nil end
+    if not emitter or not emitter.Color then return nil end
     local colors = {}
     for _,kp in ipairs(emitter.Color.Keypoints) do
         table.insert(colors, kp.Value)
@@ -79,6 +78,7 @@ local function getEmitterColors(emitter)
 end
 
 local function getRealPartFromEmitter(emitter)
+    if not emitter then return nil end
     local p = emitter.Parent
     if p and p:IsA("Attachment") then
         p = p.Parent
@@ -202,24 +202,36 @@ local function updateCountsGUI(counts)
     CountsGui.Text.Text = table.concat(lines, "\n")
 end
 
--- ESP
-local createdESP = {}
+-- ESP Management
+local espParts = {}
+
 local function clearESP()
-    for _,obj in ipairs(createdESP) do
-        if obj and obj.Parent then
-            obj:Destroy()
+    for part, esp in pairs(espParts) do
+        if esp.highlight and esp.highlight.Parent then
+            esp.highlight:Destroy()
+        end
+        if esp.billboard and esp.billboard.Parent then
+            esp.billboard:Destroy()
         end
     end
-    table.clear(createdESP)
+    table.clear(espParts)
+end
+
+local function removeESP(part)
+    local esp = espParts[part]
+    if esp then
+        if esp.highlight and esp.highlight.Parent then
+            esp.highlight:Destroy()
+        end
+        if esp.billboard and esp.billboard.Parent then
+            esp.billboard:Destroy()
+        end
+        espParts[part] = nil
+    end
 end
 
 local function createESP(part, rarityName, color)
-    -- Remove ESP antigo se existir
-    for _,obj in ipairs(createdESP) do
-        if obj and obj.Parent == part then
-            obj:Destroy()
-        end
-    end
+    removeESP(part)
     
     local highlight = Instance.new("Highlight")
     highlight.Adornee = part
@@ -229,14 +241,12 @@ local function createESP(part, rarityName, color)
     highlight.OutlineTransparency = 0
     highlight.DepthMode = Enum.HighlightDepthMode.Occluded
     highlight.Parent = part
-    table.insert(createdESP, highlight)
 
     local billboard = Instance.new("BillboardGui")
     billboard.Size = UDim2.fromOffset(150, 36)
     billboard.StudsOffset = Vector3.new(0, part.Size.Y + 0.6, 0)
     billboard.AlwaysOnTop = true
     billboard.Parent = part
-    table.insert(createdESP, billboard)
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.fromScale(1,1)
@@ -249,133 +259,204 @@ local function createESP(part, rarityName, color)
     label.TextStrokeTransparency = 0
     label.TextStrokeColor3 = Color3.new(0,0,0)
     label.Parent = billboard
+    
+    espParts[part] = {
+        highlight = highlight,
+        billboard = billboard,
+        rarity = rarityName
+    }
 end
 
--- Emitter tracking
-local trackedEmitters = {}
-local emitterConnections = {}
-local partConnections = {}  -- NOVO: Monitora Parts que podem receber emitters
+-- ========== SISTEMA DE TELEPORTE CORRIGIDO ==========
+-- Gerando coordenadas Y no padrão do jogo:
+-- Positivos: 1, 501, 1001, 1501, 2001, 2501, 3001
+-- Negativos: -499, -999, -1499, -1999, -2499, -2999, -3499, -3999, -4499, -4999, -5499, -5999, -6499, -6999, -7499, -7999
 
--- NOVO: Monitora uma part para detecção de novos emitters
-local function monitorPartForEmitters(part)
-    if partConnections[part] then return end
+local teleportLocations = {
+    -- Positivos (acima da superfície)
+    {Name = "🏠 Superfície", Y = 1, Description = "Nível do mar / Lobby"},
+    {Name = "⬆️ Altitude 1", Y = 501, Description = "500 blocos acima"},
+    {Name = "⬆️ Altitude 2", Y = 1001, Description = "1000 blocos acima"},
+    {Name = "⬆️ Altitude 3", Y = 1501, Description = "1500 blocos acima"},
+    {Name = "⬆️ Altitude 4", Y = 2001, Description = "2000 blocos acima"},
+    {Name = "⬆️ Altitude 5", Y = 2501, Description = "2500 blocos acima"},
+    {Name = "⬆️ Altitude 6", Y = 3001, Description = "3000 blocos acima"},
     
-    -- Monitora quando um novo emitter é adicionado à part
-    local conn = part.ChildAdded:Connect(function(child)
-        if child:IsA("ParticleEmitter") and not isInsideBreaking(child) then
-            trackEmitter(child)
-            requestScan()
-        end
-    end)
+    -- Negativos (profundidades)
+    {Name = "⬇️ Profundidade 1", Y = -499, Description = "500 blocos abaixo"},
+    {Name = "⬇️ Profundidade 2", Y = -999, Description = "1000 blocos abaixo"},
+    {Name = "⬇️ Profundidade 3", Y = -1499, Description = "1500 blocos abaixo"},
+    {Name = "⬇️ Profundidade 4", Y = -1999, Description = "2000 blocos abaixo"},
+    {Name = "⬇️ Profundidade 5", Y = -2499, Description = "2500 blocos abaixo"},
+    {Name = "⬇️ Profundidade 6", Y = -2999, Description = "3000 blocos abaixo"},
+    {Name = "⬇️ Profundidade 7", Y = -3499, Description = "3500 blocos abaixo"},
+    {Name = "⬇️ Profundidade 8", Y = -3999, Description = "4000 blocos abaixo"},
+    {Name = "⬇️ Profundidade 9", Y = -4499, Description = "4500 blocos abaixo"},
+    {Name = "⬇️ Profundidade 10", Y = -4999, Description = "5000 blocos abaixo"},
+    {Name = "⬇️ Profundidade 11", Y = -5499, Description = "5500 blocos abaixo"},
+    {Name = "⬇️ Profundidade 12", Y = -5999, Description = "6000 blocos abaixo"},
+    {Name = "⬇️ Profundidade 13", Y = -6499, Description = "6500 blocos abaixo"},
+    {Name = "⬇️ Profundidade 14", Y = -6999, Description = "7000 blocos abaixo"},
+    {Name = "⬇️ Profundidade 15", Y = -7499, Description = "7500 blocos abaixo"},
+    {Name = "⬇️ Profundidade 16", Y = -7999, Description = "8000 blocos abaixo"},
+}
+
+-- Função para gerar todas as profundidades programaticamente (caso queira mais)
+local function generateAllDepths()
+    local depths = {}
     
-    partConnections[part] = conn
+    -- Positivos: de 1 até 3001, pulando 500
+    for y = 1, 3001, 500 do
+        table.insert(depths, {
+            Name = (y == 1 and "🏠 Superfície" or string.format("⬆️ Altitude %d", (y-1)/500 + 1)),
+            Y = y,
+            Description = string.format("%d blocos %s", math.abs(y-1), y == 1 and "(nível do mar)" or "acima")
+        })
+    end
     
-    -- Também monitora se a part for destruída
-    part.AncestryChanged:Connect(function()
-        if not part.Parent then
-            if partConnections[part] then
-                partConnections[part]:Disconnect()
-                partConnections[part] = nil
-            end
-        end
-    end)
+    -- Negativos: de -499 até -7999, pulando 500
+    for y = -499, -7999, -500 do
+        local level = math.abs(y + 1)/500 + 1
+        table.insert(depths, {
+            Name = string.format("⬇️ Profundidade %d", level),
+            Y = y,
+            Description = string.format("%d blocos abaixo", math.abs(y-1))
+        })
+    end
+    
+    return depths
 end
 
--- NOVO: Monitora TODO o workspace para detectar novas Parts
-local function setupWorkspaceMonitoring()
-    -- Monitora novas partes sendo adicionadas
-    workspace.DescendantAdded:Connect(function(descendant)
-        if descendant:IsA("BasePart") then
-            monitorPartForEmitters(descendant)
+-- Se quiser usar a versão gerada automaticamente:
+-- local teleportLocations = generateAllDepths()
+
+-- Função de teleporte
+local function teleportToY(targetY)
+    local character = player.Character
+    if not character then
+        Rayfield:Notify({
+            Title = "Erro",
+            Content = "Personagem não encontrado!",
+            Duration = 3,
+        })
+        return
+    end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then
+        Rayfield:Notify({
+            Title = "Erro",
+            Content = "HumanoidRootPart não encontrado!",
+            Duration = 3,
+        })
+        return
+    end
+    
+    -- Posição atual
+    local currentPos = humanoidRootPart.Position
+    local newPos = Vector3.new(0, targetY, 0) -- X e Z sempre 0
+    
+    -- Teleporta
+    humanoidRootPart.CFrame = CFrame.new(newPos)
+    
+    -- Notificação
+    Rayfield:Notify({
+        Title = "Teleportado!",
+        Content = string.format("Y: %.0f → %.0f", currentPos.Y, targetY),
+        Duration = 3,
+    })
+end
+
+-- Função para ir para a superfície (Y=1)
+local function teleportToSurface()
+    teleportToY(1)
+end
+
+-- Função para subir 500 blocos
+local function goUp()
+    local character = player.Character
+    if character then
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local currentY = hrp.Position.Y
+            local targetY
             
-            -- Verifica se a part já tem emitters
-            for _, child in ipairs(descendant:GetChildren()) do
-                if child:IsA("ParticleEmitter") and not isInsideBreaking(child) then
-                    trackEmitter(child)
-                end
+            -- Lógica para encontrar o próximo Y positivo
+            if currentY >= 1 then
+                -- Está em área positiva
+                targetY = math.floor((currentY + 500) / 500) * 500 + 1
+            else
+                -- Está em área negativa, vai para o primeiro positivo
+                targetY = 1
             end
-            requestScan()
-        elseif descendant:IsA("ParticleEmitter") and not isInsideBreaking(descendant) then
-            trackEmitter(descendant)
-            requestScan()
+            
+            teleportToY(targetY)
         end
-    end)
-    
-    -- Monitora partes sendo removidas
-    workspace.DescendantRemoving:Connect(function(descendant)
-        if descendant:IsA("ParticleEmitter") then
-            untrackEmitter(descendant)
-            requestScan()
-        elseif descendant:IsA("BasePart") then
-            -- Remove monitoramento da part
-            if partConnections[descendant] then
-                partConnections[descendant]:Disconnect()
-                partConnections[descendant] = nil
+    end
+end
+
+-- Função para descer 500 blocos
+local function goDown()
+    local character = player.Character
+    if character then
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local currentY = hrp.Position.Y
+            local targetY
+            
+            if currentY > 1 then
+                -- Está em área positiva, desce para o primeiro negativo
+                targetY = -499
+            elseif currentY <= -499 then
+                -- Está em área negativa, desce mais
+                targetY = math.floor((currentY - 500) / 500) * 500 - 499
+            else
+                targetY = -499
             end
+            
+            teleportToY(targetY)
         end
-    end)
+    end
 end
 
--- Funções de tracking melhoradas
-local function trackEmitter(emitter)
-    if trackedEmitters[emitter] then return end
-    if isInsideBreaking(emitter) then return end
-    
-    trackedEmitters[emitter] = true
-    
-    -- Remove conexão anterior
-    if emitterConnections[emitter] then
-        emitterConnections[emitter]:Disconnect()
-    end
-    
-    -- Monitora mudanças de parentesco
-    emitterConnections[emitter] = emitter.AncestryChanged:Connect(function()
-        if not emitter.Parent then
-            -- Emitter foi destruído
-            untrackEmitter(emitter)
-        elseif isInsideBreaking(emitter) then
-            -- Emitter foi movido para Breaking
-            untrackEmitter(emitter)
+-- Função para teleporte personalizado (agora valida se está no padrão)
+local function customTeleport(yValue)
+    yValue = tonumber(yValue)
+    if yValue then
+        -- Verifica se é um valor válido no padrão do jogo
+        local isValid = false
+        
+        -- Verifica positivos (1, 501, 1001...)
+        if yValue >= 1 and yValue <= 3001 and (yValue - 1) % 500 == 0 then
+            isValid = true
         end
-        requestScan()
-    end)
-    
-    -- Monitora a part pai para quando ela for destruída
-    local part = getRealPartFromEmitter(emitter)
-    if part then
-        monitorPartForEmitters(part)
-    end
-end
-
-local function untrackEmitter(emitter)
-    if emitterConnections[emitter] then
-        emitterConnections[emitter]:Disconnect()
-        emitterConnections[emitter] = nil
-    end
-    trackedEmitters[emitter] = nil
-end
-
--- Inicializa monitoramento
-setupWorkspaceMonitoring()
-
--- Escaneia objetos existentes
-for _, obj in ipairs(workspace:GetDescendants()) do
-    if obj:IsA("BasePart") then
-        monitorPartForEmitters(obj)
-        for _, child in ipairs(obj:GetChildren()) do
-            if child:IsA("ParticleEmitter") and not isInsideBreaking(child) then
-                trackEmitter(child)
-            end
+        
+        -- Verifica negativos (-499, -999, -1499... até -7999)
+        if yValue <= -499 and yValue >= -7999 and (yValue + 499) % -500 == 0 then
+            isValid = true
         end
-    elseif obj:IsA("ParticleEmitter") and not isInsideBreaking(obj) then
-        trackEmitter(obj)
+        
+        if isValid or yValue == 0 then -- 0 não é usado, mas permitimos
+            teleportToY(yValue)
+        else
+            Rayfield:Notify({
+                Title = "Y Inválido",
+                Content = "Use: 1, 501, 1001... ou -499, -999, -1499...",
+                Duration = 5,
+            })
+        end
+    else
+        Rayfield:Notify({
+            Title = "Erro",
+            Content = "Valor inválido!",
+            Duration = 3,
+        })
     end
 end
 
--- Scan logic
-local scanPending = false
+-- ========== SCAN FUNCTIONS ==========
 local scanning = false
-local lastRequest = 0
+local scanRequested = false
 
 local function zeroCounts()
     local counts = {}
@@ -383,60 +464,59 @@ local function zeroCounts()
     return counts
 end
 
-local function doScan()
+local function performFullScan()
     if scanning then return end
     scanning = true
-    scanPending = false
-
-    local ok, err = pcall(function()
-        clearESP()
-        local counts = zeroCounts()
-        local markedParts = {}
-        local processed = 0
-        local stepCount = 0
-
-        -- Limpa emitters inválidos
-        for emitter in pairs(trackedEmitters) do
-            if not emitter or not emitter.Parent or isInsideBreaking(emitter) then
-                untrackEmitter(emitter)
+    
+    local success, err = pcall(function()
+        for part in pairs(espParts) do
+            if not part or not part.Parent or isInsideBreaking(part) then
+                removeESP(part)
             end
         end
-
-        -- Escaneia emitters válidos
-        for emitter in pairs(trackedEmitters) do
+        
+        local counts = zeroCounts()
+        local processed = 0
+        local stepCount = 0
+        
+        for _, emitter in ipairs(workspace:GetDescendants()) do
             if processed >= MAX_BLOCKS then break end
             
-            if emitter and emitter.Parent and not isInsideBreaking(emitter) then
-                local part = getRealPartFromEmitter(emitter)
-                if part and part.Parent and not isInsideBreaking(part) and not markedParts[part] then
-                    local colors = getEmitterColors(emitter)
-                    if colors then
-                        local found = nil
-                        for rarityName, data in pairs(rarities) do
-                            if enabled[rarityName] then
-                                for _,c in ipairs(colors) do
-                                    if colorNear(c, data.Color) then
-                                        found = rarityName
-                                        break
+            if emitter:IsA("ParticleEmitter") and emitter.Parent then
+                if not isInsideBreaking(emitter) then
+                    local part = getRealPartFromEmitter(emitter)
+                    
+                    if part and part.Parent and not isInsideBreaking(part) then
+                        local colors = getEmitterColors(emitter)
+                        if colors and #colors > 0 then
+                            local found = nil
+                            
+                            for rarityName, data in pairs(rarities) do
+                                if enabled[rarityName] then
+                                    for _, color in ipairs(colors) do
+                                        if colorNear(color, data.Color) then
+                                            found = rarityName
+                                            break
+                                        end
                                     end
                                 end
+                                if found then break end
                             end
-                            if found then break end
-                        end
-                        if found then
-                            markedParts[part] = true
-                            counts[found] = counts[found] + 1
-                            processed = processed + 1
-                            createESP(part, found, rarities[found].Color)
+                            
+                            if found and not espParts[part] then
+                                counts[found] = counts[found] + 1
+                                processed = processed + 1
+                                createESP(part, found, rarities[found].Color)
+                            end
                         end
                     end
                 end
-            end
-            
-            stepCount = stepCount + 1
-            if stepCount >= YIELD_EVERY then
-                stepCount = 0
-                RunService.Heartbeat:Wait()
+                
+                stepCount = stepCount + 1
+                if stepCount >= YIELD_EVERY then
+                    stepCount = 0
+                    RunService.Heartbeat:Wait()
+                end
             end
         end
         
@@ -444,70 +524,73 @@ local function doScan()
             updateCountsGUI(counts)
         end
     end)
-
+    
     scanning = false
-    if not ok then
+    scanRequested = false
+    
+    if not success then
         warn("[OreScanner] Scan error: " .. tostring(err))
     end
 end
 
-local function requestScan()
-    lastRequest = os.clock()
-    if scanPending then return end
-    scanPending = true
-    task.delay(RESCAN_DEBOUNCE, function()
-        if os.clock() - lastRequest >= RESCAN_DEBOUNCE - 0.01 then
-            doScan()
-        else
-            scanPending = false
-            requestScan()
+local function scheduleScan()
+    if not scanRequested then
+        scanRequested = true
+        task.wait(0.5)
+        if scanRequested then
+            performFullScan()
         end
-    end)
+    end
 end
 
-local function forceRestart()
-    -- Limpa tudo
-    clearESP()
-    
-    for emitter, conn in pairs(emitterConnections) do
-        if conn then conn:Disconnect() end
-    end
-    table.clear(emitterConnections)
-    
-    for part, conn in pairs(partConnections) do
-        if conn then conn:Disconnect() end
-    end
-    table.clear(partConnections)
-    
-    table.clear(trackedEmitters)
-    
-    -- Reescaneia tudo
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            monitorPartForEmitters(obj)
-            for _, child in ipairs(obj:GetChildren()) do
-                if child:IsA("ParticleEmitter") and not isInsideBreaking(child) then
-                    trackEmitter(child)
-                end
+-- Loop periódico de scan
+coroutine.wrap(function()
+    while true do
+        task.wait(SCAN_INTERVAL)
+        local anyEnabled = false
+        for _, v in pairs(enabled) do
+            if v then 
+                anyEnabled = true 
+                break 
             end
-        elseif obj:IsA("ParticleEmitter") and not isInsideBreaking(obj) then
-            trackEmitter(obj)
+        end
+        if anyEnabled then
+            performFullScan()
         end
     end
-    
-    doScan()
-end
+end)()
 
-local function anyEnabled()
-    for _, v in pairs(enabled) do
-        if v then return true end
+-- Event Listeners
+workspace.DescendantAdded:Connect(function(descendant)
+    if descendant:IsA("ParticleEmitter") or descendant:IsA("BasePart") then
+        scheduleScan()
     end
-    return false
+end)
+
+workspace.DescendantRemoving:Connect(function(descendant)
+    if descendant:IsA("ParticleEmitter") or descendant:IsA("BasePart") then
+        scheduleScan()
+    end
+end)
+
+if breakingFolder then
+    breakingFolder.ChildAdded:Connect(scheduleScan)
+    breakingFolder.ChildRemoved:Connect(scheduleScan)
 end
 
--- Rayfield Tab
-local ScannerTab = Window:CreateTab("Scanner")
+workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Breaking" then
+        breakingFolder = child
+        breakingFolder.ChildAdded:Connect(scheduleScan)
+        breakingFolder.ChildRemoved:Connect(scheduleScan)
+    end
+end)
 
+-- ========== UI RAYFIELD ==========
+local ScannerTab = Window:CreateTab("Scanner")
+local TeleportTab = Window:CreateTab("Teleports")
+
+-- ABA SCANNER
 ScannerTab:CreateSection("Scanner Settings")
 
 ScannerTab:CreateSlider({
@@ -518,7 +601,18 @@ ScannerTab:CreateSlider({
     Flag = "MaxBlocksSlider",
     Callback = function(v)
         MAX_BLOCKS = v
-        requestScan()
+        scheduleScan()
+    end,
+})
+
+ScannerTab:CreateSlider({
+    Name = "Scan Interval (seconds)",
+    Range = {1, 10},
+    Increment = 0.5,
+    CurrentValue = SCAN_INTERVAL,
+    Flag = "ScanIntervalSlider",
+    Callback = function(v)
+        SCAN_INTERVAL = v
     end,
 })
 
@@ -531,14 +625,22 @@ for _, name in ipairs({"Uncommon", "Epic", "Legendary", "Mythic", "Ethereal", "C
         Flag = name .. "Toggle",
         Callback = function(v)
             enabled[name] = v
-            if not anyEnabled() then
+            local anyEnabled = false
+            for _, enabledState in pairs(enabled) do
+                if enabledState then 
+                    anyEnabled = true 
+                    break 
+                end
+            end
+            
+            if anyEnabled then
+                scheduleScan()
+            else
                 clearESP()
                 if CountsGui then
                     updateCountsGUI(zeroCounts())
                 end
-                return
             end
-            requestScan()
         end,
     })
 end
@@ -550,7 +652,7 @@ ScannerTab:CreateToggle({
     Callback = function(v)
         if v then
             CreateCountsGui()
-            requestScan()
+            scheduleScan()
         else
             DestroyCountsGui()
         end
@@ -558,33 +660,94 @@ ScannerTab:CreateToggle({
 })
 
 ScannerTab:CreateButton({
-    Name = "Force Restart Scanner",
+    Name = "Force Scan Now",
     Callback = function()
-        forceRestart()
+        clearESP()
+        performFullScan()
         Rayfield:Notify({
-            Title = "Scanner Restarted",
-            Content = "ESP reset and full rescan completed.",
-            Duration = 3,
+            Title = "Scan Forçado",
+            Content = "Scan completo realizado.",
+            Duration = 2,
         })
     end,
 })
 
--- Monitora pasta Breaking
-if breakingFolder then
-    breakingFolder.ChildAdded:Connect(requestScan)
-    breakingFolder.ChildRemoved:Connect(requestScan)
+-- ========== ABA DE TELEPORTES CORRIGIDA ==========
+TeleportTab:CreateSection("📍 Controles Rápidos")
+
+-- Botões de navegação rápida
+TeleportTab:CreateButton({
+    Name = "🏠 Superfície (Y=1)",
+    Callback = teleportToSurface,
+})
+
+TeleportTab:CreateButton({
+    Name = "⬆️ Subir 500 blocos",
+    Callback = goUp,
+})
+
+TeleportTab:CreateButton({
+    Name = "⬇️ Descer 500 blocos",
+    Callback = goDown,
+})
+
+TeleportTab:CreateSection("📊 Acima da Superfície (Positivos)")
+
+-- Botões para altitudes positivas
+local positiveLocations = {}
+for _, loc in ipairs(teleportLocations) do
+    if loc.Y > 0 then
+        table.insert(positiveLocations, loc)
+    end
 end
 
-workspace.ChildAdded:Connect(function(child)
-    if child.Name == "Breaking" and not breakingFolder then
-        breakingFolder = child
-        breakingFolder.ChildAdded:Connect(requestScan)
-        breakingFolder.ChildRemoved:Connect(requestScan)
+for _, location in ipairs(positiveLocations) do
+    TeleportTab:CreateButton({
+        Name = location.Name .. " (Y: " .. location.Y .. ")",
+        Callback = function()
+            teleportToY(location.Y)
+        end,
+    })
+end
+
+TeleportTab:CreateSection("📊 Profundidades (Negativos)")
+
+-- Botões para profundidades negativas
+local negativeLocations = {}
+for _, loc in ipairs(teleportLocations) do
+    if loc.Y < 0 then
+        table.insert(negativeLocations, loc)
     end
-end)
+end
+
+for _, location in ipairs(negativeLocations) do
+    TeleportTab:CreateButton({
+        Name = location.Name .. " (Y: " .. location.Y .. ")",
+        Callback = function()
+            teleportToY(location.Y)
+        end,
+    })
+end
+
+TeleportTab:CreateSection("⚙️ Teleporte Personalizado")
+
+TeleportTab:CreateInput({
+    Name = "Digite a coordenada Y",
+    PlaceholderText = "Ex: 1501 ou -2499",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        customTeleport(text)
+    end,
+})
+
+TeleportTab:CreateSection("ℹ️ Formato Válido")
+TeleportTab:CreateLabel("Positivos: 1, 501, 1001, 1501... até 3001")
+TeleportTab:CreateLabel("Negativos: -499, -999, -1499... até -7999")
+TeleportTab:CreateLabel("Sempre pulando de 500 em 500")
 
 -- Load configuration
 Rayfield:LoadConfiguration()
 
--- Initial request
-requestScan()
+-- Scan inicial
+task.wait(1)
+performFullScan()
