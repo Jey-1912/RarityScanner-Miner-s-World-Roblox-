@@ -2,6 +2,7 @@
 -- Adapted from provided script: Uses emitter tracking for efficiency
 -- AUTO via coalesced events | NO RARE | NO EMERALD | Ignores workspace.Breaking
 -- Counts GUI | Minimizable | Max Blocks Slider
+-- Added: Force Rescan button to reset and fully restart scanner
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -350,6 +351,22 @@ local function requestScan()
     end)
 end
 
+local function forceRestart()
+    -- Clear current ESP and trackers
+    clearESP()
+    table.clear(trackedEmitters)
+    
+    -- Repopulate trackers from current workspace
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ParticleEmitter") then
+            trackEmitter(obj)
+        end
+    end
+    
+    -- Force a full scan
+    doScan()
+end
+
 local function anyEnabled()
     for _, v in pairs(enabled) do
         if v then return true end
@@ -406,6 +423,19 @@ ScannerTab:CreateToggle({
         else
             DestroyCountsGui()
         end
+    end,
+})
+
+-- New: Force Restart button
+ScannerTab:CreateButton({
+    Name = "Force Restart Scanner",
+    Callback = function()
+        forceRestart()
+        Rayfield:Notify({
+            Title = "Scanner Restarted",
+            Content = "ESP reset and full rescan completed.",
+            Duration = 3,
+        })
     end,
 })
 
