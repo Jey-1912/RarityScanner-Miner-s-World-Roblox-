@@ -313,7 +313,7 @@ ScannerTab:CreateToggle({
     Callback = function(v)
         if v then
             CreateCountsGui()
-            task.defer(scan)
+            task.defer(scan)  -- Scan imediato após criar a janela
         else
             DestroyCountsGui()
         end
@@ -361,6 +361,13 @@ SaveTab:CreateButton({
 
 -- Load initial configuration
 Rayfield:LoadConfiguration()
+
+-- No final do script, após Rayfield:LoadConfiguration()
+task.delay(1, function()
+    if next(enabled) then  -- Só se alguma raridade ativa
+        pcall(scan)
+    end
+end)
 
 -- Auto scan setup
 task.defer(scan) -- Initial scan
